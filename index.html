@@ -481,6 +481,11 @@
       } else if (p.estadoMovil === 'FALLIDO') { fallidos++; pagoTotalMensajero += Number(p.pagoMensajeroIndividual || 0); }
       else if (p.estadoMovil === 'NO LLEVADO') noLlevados++;
 
+      // 🌟 Limpieza estricta: Extrae únicamente el código o consecutivo limpio para la cabecera
+      let rawConsecutivo = String(p.consecutivo || 'N/A');
+      let matchLimpio = rawConsecutivo.match(/IDINT\.?\s*(\d+)/i) || rawConsecutivo.match(/CodInt[:\.]?\s*(\d+)/i) || rawConsecutivo.match(/(C-\d+|HS\d+|[A-Z]{3,4}\d+|\d+)/i);
+      let consecutivoLimpio = matchLimpio ? (matchLimpio[1] || matchLimpio[0]) : rawConsecutivo;
+
       const card = document.createElement("div");
       let claseCard = 'card-paquete';
       if (p.estadoMovil === 'ENTREGADO') claseCard += ' estado-entregado';
@@ -505,7 +510,7 @@
         <div class="card-header">
           <span class="consecutivo">
             <span style="background: #001c5b; color: white; padding: 2px 7px; border-radius: 4px; font-size: 12px; margin-right: 6px; font-weight: bold;">#${index + 1}</span>
-            📦 Guía: ${p.consecutivo || 'N/A'}
+            📦 Guía: ${consecutivoLimpio}
           </span>
           <span>${p.tienda || ''}</span>
         </div>
@@ -549,7 +554,7 @@
     document.getElementById("txtPagoTotalMensajero").innerText = formatCOP(pagoTotalMensajero);
     calcularArqueoFinal();
   }
-
+  
   function cambiarEstado(index, nuevoEstado) {
     misPaquetes[index].estadoMovil = nuevoEstado;
     misPaquetes[index].pagoMensajeroIndividual = obtenerTarifaPorEstado(misPaquetes[index], nuevoEstado);
