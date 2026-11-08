@@ -25,10 +25,12 @@
     .input-manual-group { display: flex; gap: 8px; margin-top: 5px; }
     .input-manual-group input { margin-bottom: 0; }
 
-    /* Alerta visual flotante interna (Reemplaza los molestos alert()) */
-    #toastMensaje { display: none; padding: 10px; margin-bottom: 10px; border-radius: 8px; font-weight: bold; text-align: center; font-size: 14px; }
-    .toast-exito { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-    .toast-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    /* Alerta visual flotante tipo Toast */
+    #contenedor-notificaciones { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+    .notificacion-toast { background-color: #dc3545; color: white; padding: 15px 25px; border-radius: 6px; font-size: 14px; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.15); animation: slidein 0.3s ease-out; }
+    .notificacion-toast.ok { background-color: #28a745; }
+    @keyframes slidein { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    @keyframes fadeout { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.9); } }
 
     /* Contadores de Ruta y Totales */
     .resumen-ruta { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 15px; flex-wrap: wrap; }
@@ -61,6 +63,9 @@
     .btn-ok { background: #28a745; color: white; }
     .btn-fail { background: #dc3545; color: white; }
     .btn-skip { background: #fd7e14; color: white; }
+    
+    .bloque-reporte { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #ccc; display: none; }
+    .badge-estado { display: inline-block; padding: 4px 10px; border-radius: 4px; font-weight: bold; font-size: 12px; color: white; margin-bottom: 8px; }
 
     .caja-arqueo { background: white; border-radius: 12px; padding: 16px; margin-top: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
     .caja-arqueo h3 { margin: 0 0 12px 0; font-size: 16px; color: #001c5b; text-align: center; border-bottom: 2px solid #eef2ff; padding-bottom: 8px; }
@@ -86,28 +91,26 @@
     <p>Gestión de Ruta y Entregas</p>
   </div>
 
-  <div class="container">
+  <div class="container" id="contenedorPrincipal">
     
     <div class="caja-ingreso" id="bloqueLogin">
       <select id="mensajero">
         <option value="">Selecciona tu Nombre...</option>
       </select>
+      <input type="number" id="ruta" placeholder="Número de Ruta Asignada" pattern="\d*" inputmode="numeric">
       <input type="password" id="pin" placeholder="Introduce tu PIN de seguridad" pattern="\d*" inputmode="numeric">
-      <button class="btn-principal" onclick="iniciarSesionYObtenerRuta()">INGRESAR A MI RUTA</button>
+      <button class="btn-principal" onclick="iniciarSesionYObtenerRuta()">VER MI RUTA</button>
     </div>
 
-    <div id="loader">⏳ Validando credenciales y asignando ruta...</div>
+    <div id="loader">⏳ Validando credenciales y cargando ruta...</div>
 
     <div id="bloqueRuta" style="display: none;">
-      <button class="btn-logout" onclick="cerrarSesionMensajero()">🔒 Salir</button>
+      <button class="btn-logout" onclick="cerrarSesionMensajero()">🔒 Salir / Cambiar</button>
       <div style="clear:both;"></div>
 
-      <!-- MÓDULO DE ESCANEO FLUIDO ESTILO FLEX -->
+      <!-- MÓDULO DE ESCANEO CONTINUO ESTILO FLEX -->
       <div class="caja-escaneo" style="text-align: center;">
         <button class="btn-principal" id="btnToggleCamara" style="background: #17a2b8; margin-bottom: 10px;" onclick="toggleCamaraFlex()">📷 Abrir Escáner de Cámara</button>
-        
-        <!-- Notificación visual interna en lugar de alertas molestas -->
-        <div id="toastMensaje"></div>
 
         <div id="reader" style="width: 100%; max-width: 400px; margin: 0 auto; display: none; border-radius: 8px; overflow: hidden;"></div>
         
@@ -182,7 +185,8 @@
   </div>
 
 <script>
-  const URL_API = "https://script.google.com/macros/s/AKfycbyExBLNu0HK_cBeLKX63-NPeVaLxN34T1yOhSR3R_8WTadJToKItN9nKTH5MEH1tjDt/exec"; // Reemplaza si es necesario con tu URL actual
+  // 🔗 REEMPLAZA CON TU URL REAL DE LA WEB APP DE APPS SCRIPT
+  const URL_API = "https://script.google.com/macros/s/TU_ID_DE_WEB_APP_AQUI/exec";
 
   let misPaquetes = [];
   let tarifasMunicipios = {};
@@ -190,6 +194,7 @@
   let tiendasBodegaSet = new Set();
   let html5QrCode = null;
   let camaraActiva = false;
+  let procesandoEscaneo = false;
   let ultimaLecturaTime = 0;
   let ultimoCodigoLeido = "";
 
@@ -223,7 +228,7 @@
     }
 
     let resMatriz = await llamarAPI({ accion: "matrizPrecios" });
-    if (resMatriz) {
+    if (resMatriz && resMatriz.exito) {
       tarifasMunicipios = resMatriz.tarifasMunicipios || {};
       tiendasBodegaSet = new Set((resMatriz.tiendasBodega || []).map(t => t.trim().toUpperCase()));
       tarifasBodegas = resMatriz.tarifasBodegas || {};
@@ -235,8 +240,9 @@
     if (sesionGuardada) {
       try {
         const creds = JSON.parse(sesionGuardada);
-        if (creds.mensajero && creds.pin) {
+        if (creds.mensajero && creds.ruta && creds.pin) {
           document.getElementById("mensajero").value = creds.mensajero;
+          document.getElementById("ruta").value = creds.ruta;
           document.getElementById("pin").value = creds.pin;
           iniciarSesionYObtenerRuta();
         }
@@ -254,12 +260,22 @@
     }
   }
 
-  function mostrarToast(texto, tipo) {
-    const toast = document.getElementById("toastMensaje");
-    toast.innerText = texto;
-    toast.className = tipo === 'exito' ? 'toast-exito' : 'toast-error';
-    toast.style.display = "block";
-    setTimeout(() => { toast.style.display = "none"; }, 3500);
+  function mostrarNotificacionError(mensaje, esOk = false) {
+    let contenedor = document.getElementById("contenedor-notificaciones");
+    if (!contenedor) {
+      contenedor = document.createElement("div");
+      contenedor.id = "contenedor-notificaciones";
+      document.body.appendChild(contenedor);
+    }
+    let alerta = document.createElement("div");
+    alerta.className = "notificacion-toast " + (esOk ? "ok" : "");
+    alerta.innerText = mensaje;
+    contenedor.appendChild(alerta);
+
+    setTimeout(() => {
+      alerta.style.animation = "fadeout 0.5s forwards";
+      setTimeout(() => alerta.remove(), 500);
+    }, 2500);
   }
 
   function extraerNumero(v) { return v ? parseInt(String(v).replace(/\D/g, ''), 10) || 0 : 0; }
@@ -275,16 +291,23 @@
     let estadoLimpio = String(estado || "").trim().toUpperCase();
     if (estadoLimpio !== 'ENTREGADO' && estadoLimpio !== 'FALLIDO') return 0;
 
-    let valGrande = String(p.paquetegrande || p.paqueteGrande || "").trim().toUpperCase();
+    let valGrande = String(p.paquetegrande || p.paqueteGrande || p.GRANDE || "").trim().toUpperCase();
     let esGrande = (valGrande === 'SI' || valGrande === 'TRUE');
     let tarifaBase = 0;
     let muniKey = String(p.municipio || "").trim().toUpperCase();
     let nombreTienda = String(p.tienda || "").trim().toUpperCase();
 
     if (esGrande && estadoLimpio === 'ENTREGADO') {
-      tarifaBase = Number(p.valordomicilio || p.valorDomicilio || 0) * 0.60;
+      let valorDomicilio = Number(p.valordomicilio || p.valorDomicilio || 0);
+      tarifaBase = valorDomicilio * 0.60;
     } else {
-      let valoresMuni = (tiendasBodegaSet.has(nombreTienda) && tarifasBodegas[muniKey]) ? tarifasBodegas[muniKey] : (tarifasMunicipios[muniKey] || { entregado: 0, fallido: 0 });
+      let valoresMuni;
+      if (tiendasBodegaSet.has(nombreTienda) && tarifasBodegas[muniKey]) {
+        valoresMuni = tarifasBodegas[muniKey];
+      } else {
+        valoresMuni = tarifasMunicipios[muniKey] || { entregado: 0, fallido: 0 };
+      }
+
       if (estadoLimpio === 'ENTREGADO') {
         tarifaBase = Number(valoresMuni.entregado || 0);
         let mjActual = String(document.getElementById("mensajero").value || "").trim().toUpperCase();
@@ -300,14 +323,15 @@
 
   async function iniciarSesionYObtenerRuta() {
     const mensajero = document.getElementById("mensajero").value;
+    const ruta = document.getElementById("ruta").value;
     const pin = document.getElementById("pin").value;
 
-    if (!mensajero || !pin) { alert("Selecciona tu nombre e ingresa el PIN."); return; }
+    if (!mensajero || !ruta || !pin) { alert("Completa todos los campos."); return; }
 
     document.getElementById("loader").style.display = "block";
     document.getElementById("bloqueLogin").style.display = "none";
 
-    let res = await llamarAPI({ accion: "validarPin", mensajero, pin });
+    let res = await llamarAPI({ accion: "validarPin", mensajero, pin, ruta });
     document.getElementById("loader").style.display = "none";
 
     if (!res.exito) {
@@ -316,13 +340,13 @@
       return;
     }
 
-    localStorage.setItem('credenciales_mensajero_app', JSON.stringify({ mensajero, pin }));
+    localStorage.setItem('credenciales_mensajero_app', JSON.stringify({ mensajero, ruta, pin }));
 
     misPaquetes = (res.paquetes || []).map(p => ({
       ...p,
-      estadoMovil: p.estadoMovil || 'PENDIENTE',
+      estadoMovil: p.estado || p.estadoMovil || 'PENDIENTE',
       notasMovil: p.observacion || p.notasMovil || '',
-      pagoMensajeroIndividual: obtenerTarifaPorEstado(p, p.estadoMovil || 'PENDIENTE')
+      pagoMensajeroIndividual: obtenerTarifaPorEstado(p, p.estado || p.estadoMovil || 'PENDIENTE')
     }));
 
     document.getElementById("bloqueRuta").style.display = "block";
@@ -342,27 +366,27 @@
         html5QrCode = new Html5Qrcode("reader");
       }
 
-      // Visor amplio (300x300) adaptable para leer tanto QR como códigos de barras con facilidad
-      const configEscaneo = { fps: 15, qrbox: { width: 300, height: 300 } };
-      
       html5QrCode.start(
         { facingMode: "environment" }, 
-        configEscaneo,
+        { fps: 15, qrbox: { width: 300, height: 300 } },
         decodedText => {
           let ahora = Date.now();
-          // Bloqueo de seguridad: Evita leer el mismo código repetidamente en menos de 4 segundos
-          if (decodedText === ultimoCodigoLeido && (ahora - ultimaLecturaTime < 4000)) return;
+          if (procesandoEscaneo || (decodedText === ultimoCodigoLeido && (ahora - ultimaLecturaTime < 4000))) return;
           
+          procesandoEscaneo = true;
           ultimaLecturaTime = ahora;
           ultimoCodigoLeido = decodedText;
 
           if (navigator.vibrate) navigator.vibrate(100);
-          procesarConsecutivoEscaneado(decodedText);
+          procesarConsecutivoEscaneado(decodedText).finally(() => {
+            setTimeout(() => { procesandoEscaneo = false; }, 1500);
+          });
         },
         errorMessage => {}
       ).catch(err => {
-        alert("⚠️ No se pudo iniciar la cámara. Verifica los permisos del navegador.\n\nDetalle: " + err);
+        alert("⚠️ No se pudo iniciar la cámara: " + err);
         detenerCamaraFlex();
+        procesandoEscaneo = false;
       });
 
       camaraActiva = true;
@@ -374,6 +398,7 @@
   function detenerCamaraFlex() {
     const readerDiv = document.getElementById("reader");
     const btnCamara = document.getElementById("btnToggleCamara");
+    procesandoEscaneo = false;
 
     if (html5QrCode && html5QrCode.isScanning) {
       html5QrCode.stop().then(() => {
@@ -410,15 +435,19 @@
     const matchCod = consecutivo.match(/IDINT\.?\s*(\d+)/i) || consecutivo.match(/CodInt[:\.]?\s*(\d+)/i);
     if (matchCod) consecutivo = matchCod[1];
 
-    const existe = misPaquetes.find(p => String(p.consecutivo).trim().toUpperCase() === consecutivo);
-    if (existe) {
-      mostrarToast("⚠️ El paquete " + consecutivo + " ya está en tu ruta.", "error");
+    // 🌟 CANDADO ESTRICTO DE DUPLICADOS EN LA RUTA
+    let yaExisteEnArray = misPaquetes.some(p => String(p.consecutivo).trim().toUpperCase() === consecutivo);
+    if (yaExisteEnArray) {
+      mostrarNotificacionError("⚠️ Paquete " + consecutivo + " ya se encuentra en tu ruta.");
       return;
     }
 
-    let res = await llamarAPI({ accion: "buscarPaquete", consecutivo });
+    let mensajero = document.getElementById("mensajero").value;
+    let numeroRuta = document.getElementById("ruta").value;
+
+    let res = await llamarAPI({ accion: "buscarYAsignarPaquete", consecutivo, mensajero, numeroRuta });
     if (!res.exito || !res.registro) {
-      mostrarToast("❌ No se encontró el paquete: " + consecutivo, "error");
+      mostrarNotificacionError("❌ " + (res.mensaje || "Paquete no encontrado"));
       return;
     }
 
@@ -430,9 +459,10 @@
       notasMovil: '',
       pagoMensajeroIndividual: obtenerTarifaPorEstado(reg, 'PENDIENTE')
     };
+
     misPaquetes.unshift(nuevoPaquete);
     dibujarTarjetas();
-    mostrarToast("✅ Paquete " + consecutivo + " agregado exitosamente.", "exito");
+    mostrarNotificacionError("✅ Paquete " + consecutivo + " agregado exitosamente.", true);
   }
 
   function dibujarTarjetas() {
@@ -443,25 +473,41 @@
     let recaudoTotal = 0, pagoTotalMensajero = 0;
 
     misPaquetes.forEach((p, index) => {
-      if (p.estadoMovil === 'PENDIENTE') pendientes++;
+      const esIncompleto = ((p.estadoMovil === 'FALLIDO' || p.estadoMovil === 'NO LLEVADO') && !p.notasMovil.trim());
+
+      if (p.estadoMovil === 'PENDIENTE' || esIncompleto) pendientes++;
       else if (p.estadoMovil === 'ENTREGADO') {
         entregados++; recaudoTotal += Number(p.valor || 0); pagoTotalMensajero += Number(p.pagoMensajeroIndividual || 0);
       } else if (p.estadoMovil === 'FALLIDO') { fallidos++; pagoTotalMensajero += Number(p.pagoMensajeroIndividual || 0); }
       else if (p.estadoMovil === 'NO LLEVADO') noLlevados++;
 
       const card = document.createElement("div");
-      card.className = 'card-paquete ' + (p.estadoMovil === 'ENTREGADO' ? 'estado-entregado' : p.estadoMovil === 'FALLIDO' ? 'estado-fallido' : '');
+      let claseCard = 'card-paquete';
+      if (p.estadoMovil === 'ENTREGADO') claseCard += ' estado-entregado';
+      if (p.estadoMovil === 'FALLIDO' && p.notasMovil.trim()) claseCard += ' estado-fallido';
+      if (p.estadoMovil === 'NO LLEVADO' && p.notasMovil.trim()) claseCard += ' estado-no-llevado';
+      card.className = claseCard;
 
       let queryMapa = (p.latitud && p.longitud) ? (p.latitud + ',' + p.longitud) : encodeURIComponent((p.direccion || '') + ', ' + (p.municipio || ''));
       const linkMaps = 'https://www.google.com/maps/search/?api=1&query=' + queryMapa;
+      const numTelefono = p.telefono || p.TELEFONO || p.celular || '';
+      const telLimpio = String(numTelefono).replace(/\D/g, '');
+      const linkWa = telLimpio ? 'https://wa.me/57' + telLimpio : '#';
+      const linkTel = telLimpio ? 'tel:' + telLimpio : '#';
+
+      let colorBadge = p.estadoMovil === 'FALLIDO' ? '#dc3545' : '#fd7e14';
 
       card.innerHTML = `
         <div class="card-header">
-          <span class="consecutivo">📦 Guía: ${p.consecutivo || 'N/A'}</span>
+          <span class="consecutivo">
+            <span style="background: #001c5b; color: white; padding: 2px 7px; border-radius: 4px; font-size: 12px; margin-right: 6px; font-weight: bold;">#${index + 1}</span>
+            📦 Guía: ${p.consecutivo || 'N/A'}
+          </span>
           <span>${p.tienda || ''}</span>
         </div>
-        <div class="info-fila">👤 <strong>Cliente:</strong> ${p.cliente || ''}</div>
+        <div class="info-fila">👤 <strong>Cliente:</strong> ${p.cliente || p.nombre || ''}</div>
         <div class="info-fila">📍 <strong>Dirección:</strong> ${p.direccion || ''} (${p.municipio || ''})</div>
+        <div class="info-fila">📞 <strong>Teléfono:</strong> ${numTelefono || 'Sin número'}</div>
         <div class="bloque-valores">
           <span class="valor-cobrar">💵 Cobrar: ${formatCOP(p.valor)}</span>
           <span class="valor-pago-mj">🛵 Tu Pago: ${formatCOP(p.pagoMensajeroIndividual)}</span>
@@ -471,6 +517,13 @@
           <button type="button" class="btn-accion btn-ok" onclick="cambiarEstado(${index}, 'ENTREGADO')">✔️ Entregado</button>
           <button type="button" class="btn-accion btn-fail" onclick="cambiarEstado(${index}, 'FALLIDO')">❌ Fallido</button>
           <button type="button" class="btn-accion btn-skip" onclick="cambiarEstado(${index}, 'NO LLEVADO')">🚫 No Llevado</button>
+        </div>
+        <div class="bloque-reporte" id="reporte-${index}" style="${p.estadoMovil !== 'PENDIENTE' ? 'display:block;' : 'display:none;'}">
+          <span class="badge-estado" style="background:${colorBadge}">${p.estadoMovil}</span>
+          <div>
+            <input type="text" id="input-nota-${index}" value="${p.notasMovil || ''}" placeholder="Motivo obligatorio...">
+            <button class="btn-principal" style="padding:8px; font-size:14px; margin-top:5px; background:#001c5b;" onclick="guardarNota(${index})">💾 Guardar Estado</button>
+          </div>
         </div>
       `;
       contenedor.appendChild(card);
@@ -488,13 +541,42 @@
   function cambiarEstado(index, nuevoEstado) {
     misPaquetes[index].estadoMovil = nuevoEstado;
     misPaquetes[index].pagoMensajeroIndividual = obtenerTarifaPorEstado(misPaquetes[index], nuevoEstado);
+    if (nuevoEstado === 'ENTREGADO') misPaquetes[index].notasMovil = '';
+    
+    sincronizarConServidor(index);
+    dibujarTarjetas();
+    if (nuevoEstado !== 'ENTREGADO') {
+      setTimeout(() => {
+        const input = document.getElementById('input-nota-' + index);
+        if (input) input.focus();
+      }, 100);
+    }
+  }
+
+  function guardarNota(index) {
+    const notaInput = document.getElementById('input-nota-' + index);
+    const nota = notaInput ? notaInput.value.trim() : '';
+    const estadoActual = misPaquetes[index].estadoMovil;
+
+    if ((estadoActual === 'FALLIDO' || estadoActual === 'NO LLEVADO') && !nota) {
+      alert("⚠️ Debes escribir el motivo.");
+      return;
+    }
+
+    misPaquetes[index].notasMovil = nota;
+    sincronizarConServidor(index);
+    dibujarTarjetas();
+    mostrarNotificacionError("💾 Novedad guardada con éxito", true);
+  }
+
+  function sincronizarConServidor(index) {
+    const p = misPaquetes[index];
     llamarAPI({
       accion: "registrarNovedad",
-      consecutivo: misPaquetes[index].consecutivo,
-      estado: nuevoEstado,
-      observacion: ""
+      consecutivo: p.consecutivo,
+      estado: p.estadoMovil,
+      observacion: p.notasMovil
     });
-    dibujarTarjetas();
   }
 
   function calcularArqueoFinal() {
