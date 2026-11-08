@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Librería para escaneo de códigos QR y de barras mediante la cámara -->
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <style>
+    html, body { margin: 0; padding: 0; background-color: #001c5b; font-family: 'Segoe UI', Arial, sans-serif; color: #333; }
+    
+    .header-container { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; margin-bottom: 15px; }
+    .logo-ajustado { max-width: 160px; width: 80%; height: auto; border-radius: 8px; margin-bottom: 10px; }
+    
+    .header { text-align: center; padding: 5px 10px 15px 10px; color: white; }
+    .header h2 { margin: 0; font-size: 20px; font-weight: 500; }
+    .header p { margin: 5px 0 0 0; opacity: 0.8; font-size: 13px; }
+    
+    .container { width: 92%; max-width: 500px; margin: 0 auto 30px auto; }
+    
+    .caja-ingreso { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); margin-bottom: 20px; text-align: center; }
+    input, select { width: 100%; padding: 12px; margin-bottom: 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; box-sizing: border-box; }
+    button.btn-principal { width: 100%; padding: 14px; background: #000; color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; cursor: pointer; }
+    
+    /* MÓDULO DE ESCANEO CONTINUO (ESTILO FLEX) */
+    .caja-escaneo { background: white; border-radius: 12px; padding: 15px; margin-bottom: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
+    .input-manual-group { display: flex; gap: 8px; margin-top: 5px; }
+    .input-manual-group input { margin-bottom: 0; }
+
+    /* Contadores de Ruta y Totales */
+    .resumen-ruta { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 15px; flex-wrap: wrap; }
+    .mini-card { flex: 1; min-width: 20%; background: white; padding: 8px; border-radius: 8px; text-align: center; font-size: 12px; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.1); box-sizing: border-box; }
+    .mini-card span { display: block; font-size: 18px; color: #001c5b; margin-top: 2px; }
+
+    .mini-card-mitad { flex: 1 1 calc(50% - 4px); padding: 10px 6px; border-radius: 8px; text-align: center; font-size: 12px; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.1); box-sizing: border-box; margin-top: 4px; }
+    .mini-card-mitad span { display: block; font-size: 18px; margin-top: 2px; }
+
+    .instruccion-drag { text-align: center; color: white; font-size: 12px; margin-bottom: 10px; opacity: 0.9; }
+
+    /* Tarjetas de Paquetes */
+    .lista-paquetes { display: flex; flex-direction: column; gap: 15px; }
+    .card-paquete { background: white; border-radius: 12px; padding: 16px; box-shadow: 0 4px 8px rgba(0,0,0,0.15); border-left: 6px solid #ffc107; transition: transform 0.15s, background-color: 0.2s; user-select: none; touch-action: pan-y; }
+    .card-paquete.estado-entregado { border-left-color: #28a745; background-color: #f4fbf6; }
+    .card-paquete.estado-fallido { border-left-color: #dc3545; background-color: #fdf5f5; }
+    .card-paquete.estado-no-llevado { border-left-color: #fd7e14; background-color: #fff9f5; }
+    
+    .card-header { display: flex; justify-content: space-between; font-weight: bold; font-size: 14px; color: #666; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 6px; }
+    .consecutivo { color: #001c5b; font-size: 15px; }
+    .info-fila { margin: 6px 0; font-size: 15px; }
+    .info-fila strong { color: #111; }
+    
+    .bloque-valores { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; gap: 8px; flex-wrap: wrap; }
+    .valor-cobrar { font-size: 16px; color: #28a745; font-weight: bold; }
+    .valor-pago-mj { font-size: 14px; color: #001c5b; font-weight: bold; background: #eef2ff; padding: 4px 8px; border-radius: 6px; border: 1px solid #c7d2fe; }
+    
+    .acciones-card { display: flex; gap: 6px; margin-top: 15px; flex-wrap: wrap; }
+    .btn-accion { flex: 1; min-width: 70px; padding: 10px 6px; border: none; border-radius: 6px; font-weight: bold; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px; text-decoration: none; }
+    
+    .btn-nav { background: #e8f5e9; color: #1b5e20; border: 1px solid #c8e6c9; }
+    .btn-ok { background: #28a745; color: white; }
+    .btn-fail { background: #dc3545; color: white; }
+    .btn-skip { background: #fd7e14; color: white; }
+    
+    .btn-wa { background: #25D366; color: white; padding: 4px 8px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+    .btn-wa svg { width: 18px; height: 18px; fill: currentColor; }
+    
+    .bloque-reporte { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #ccc; display: none; }
+    .badge-estado { display: inline-block; padding: 4px 10px; border-radius: 4px; font-weight: bold; font-size: 12px; color: white; margin-bottom: 8px; }
+    
+    /* Módulo de Arqueo y Cierre */
+    .caja-arqueo { background: white; border-radius: 12px; padding: 16px; margin-top: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
+    .caja-arqueo h3 { margin: 0 0 12px 0; font-size: 16px; color: #001c5b; text-align: center; border-bottom: 2px solid #eef2ff; padding-bottom: 8px; }
+    .grid-arqueo { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+    .item-input label { display: block; font-size: 12px; color: #555; font-weight: bold; margin-bottom: 4px; }
+    .item-input input { margin-bottom: 0; padding: 8px; font-size: 14px; text-align: right; }
+    .desglose-arqueo { background: #f8fafc; border-radius: 8px; padding: 12px; border: 1px solid #e2e8f0; font-size: 13px; }
+    .fila-desglose { display: flex; justify-content: space-between; margin-bottom: 6px; }
+    .fila-desglose.destacado { font-size: 15px; font-weight: bold; border-top: 1px dashed #cbd5e1; padding-top: 6px; margin-top: 6px; }
+
+    #loader { display: none; color: white; text-align: center; margin: 20px 0; font-weight: bold; }
+    .btn-logout { background: transparent; color: #ffc107; border: 1px solid #ffc107; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; float: right; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+
+  <div class="header-container">
+    <img src="https://i.postimg.cc/Y05PNScY/descarga.png" alt="Domicilios El Hueco" class="logo-ajustado">
+  </div>
+
+  <div class="header">
+    <h2>Portal Móvil de Mensajeros</h2>
+    <p>Gestión de Ruta y Entregas</p>
+  </div>
+
+  <div class="container">
+    
+    <!-- LOGIN CON PIN Y ASIGNACIÓN AUTOMÁTICA DE RUTA -->
+    <div class="caja-ingreso" id="bloqueLogin">
+      <select id="mensajero">
+        <option value="">Selecciona tu Nombre...</option>
+      </select>
+      
+      <input type="password" id="pin" placeholder="Introduce tu PIN de seguridad" pattern="\d*" inputmode="numeric">
+      
+      <button class="btn-principal" onclick="iniciarSesionYObtenerRuta()">INGRESAR A MI RUTA</button>
+    </div>
+
+    <div id="loader">⏳ Validando credenciales y asignando ruta...</div>
+
+    <!-- BLOQUE PRINCIPAL DE TRABAJO -->
+    <div id="bloqueRuta" style="display: none;">
+      
+      <button class="btn-logout" onclick="cerrarSesionMensajero()">🔒 Salir</button>
+      <div style="clear:both;"></div>
+
+      <!-- MÓDULO DE ESCANEO CONTINUO (ESTILO FLEX) -->
+      <div class="caja-escaneo" style="text-align: center;">
+        <button class="btn-principal" id="btnToggleCamara" style="background: #17a2b8; margin-bottom: 10px;" onclick="toggleCamaraFlex()">📷 Abrir Escáner de Cámara</button>
+        
+        <div id="reader" style="width: 100%; max-width: 400px; margin: 0 auto; display: none; border-radius: 8px; overflow: hidden;"></div>
+        
+        <div class="input-manual-group" style="margin-top: 10px;">
+          <input type="text" id="inputScanManual" placeholder="O escribe el código manual..." onkeydown="evaluarScanManual(event)">
+          <button class="btn-principal" style="width: 80px; padding: 10px;" onclick="procesarCodigoManual()">OK</button>
+        </div>
+      </div>
+
+      <div class="resumen-ruta">
+        <div class="mini-card">Pend.<span id="txtPendientes">0</span></div>
+        <div class="mini-card" style="color:#28a745;">Entreg.<span id="txtEntregados" style="color:#28a745;">0</span></div>
+        <div class="mini-card" style="color:#dc3545;">Fallidos<span id="txtFallidos" style="color:#dc3545;">0</span></div>
+        <div class="mini-card" style="color:#fd7e14;">No Llev.<span id="txtNoLlevados" style="color:#fd7e14;">0</span></div>
+        
+        <div class="mini-card-mitad" style="background: #e8f5e9; border: 1px solid #c8e6c9;">
+          💰 Recaudo Total
+          <span id="txtRecaudoTotal" style="color:#28a745;">$0</span>
+        </div>
+        
+        <div class="mini-card-mitad" style="background: #eef2ff; border: 1px solid #c7d2fe;">
+          🛵 Pago Ruta
+          <span id="txtPagoTotalMensajero" style="color:#001c5b;">$0</span>
+        </div>
+      </div>
+
+      <div class="lista-paquetes" id="contenedorTarjetas"></div>
+
+      <!-- MÓDULO DE ARQUEO Y LIQUIDACIÓN -->
+      <div class="caja-arqueo" id="bloqueArqueo">
+        <h3>📊 Arqueo y Liquidación de Cierre</h3>
+        <div class="grid-arqueo">
+          <div class="item-input">
+            <label for="inputDescuentos">1. Descuentos</label>
+            <input type="text" id="inputDescuentos" placeholder="$0" inputmode="numeric" oninput="formatearEntradaMoneda(this)">
+          </div>
+          <div class="item-input">
+            <label for="inputTransferencias">2. Transferencias</label>
+            <input type="text" id="inputTransferencias" placeholder="$0" inputmode="numeric" oninput="formatearEntradaMoneda(this)">
+          </div>
+          <div class="item-input">
+            <label for="inputAjustePrecios">3. Ajustes Precios</label>
+            <input type="text" id="inputAjustePrecios" placeholder="$0" inputmode="numeric" oninput="formatearEntradaMoneda(this)">
+          </div>
+          <div class="item-input">
+            <label for="inputAjusteDomicilios">4. Ajuste Domicilios</label>
+            <input type="text" id="inputAjusteDomicilios" placeholder="$0" inputmode="numeric" oninput="formatearEntradaMoneda(this)">
+          </div>
+        </div>
+
+        <div class="desglose-arqueo">
+          <div class="fila-desglose">
+            <span>Recaudo Total Reportado:</span>
+            <strong id="lblRecaudoTotal">$0</strong>
+          </div>
+          <div class="fila-desglose destacado" style="color: #28a745;">
+            <span>TOTAL EFECTIVO:</span>
+            <strong id="lblTotalEfectivo">$0</strong>
+          </div>
+          <div class="fila-desglose" style="margin-top: 6px;">
+            <span>(-) Total Pago Mensajero:</span>
+            <span id="lblPagoMensajero">$0</span>
+          </div>
+          <div class="fila-desglose destacado" style="color: #001c5b;">
+            <span>TOTAL LIQUIDACIÓN:</span>
+            <strong id="lblTotalLiquidacion">$0</strong>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+<script>
+  // 🔗 URL DE TU WEB APP DE GOOGLE APPS SCRIPT (Cámbiala por la tuya)
+  const URL_API = "https://script.google.com/macros/s/AKfycbyExBLNu0HK_cBeLKX63-NPeVaLxN34T1yOhSR3R_8WTadJToKItN9nKTH5MEH1tjDt/exec";
+
+  let misPaquetes = [];
+  let tarifasMunicipios = {};
+  let tarifasBodegas = {};
+  let tiendasBodegaSet = new Set();
+  let html5QrCode = null;
+  let camaraActiva = false;
+
+  let datosArqueoCalculados = {
+    descuentos: 0, transferencias: 0, ajustePrecios: 0, ajusteDomicilios: 0,
+    recaudoTotal: 0, totalPagoMJ: 0, totalEfectivo: 0, totalLiquidacion: 0
+  };
+
+  async function llamarAPI(datos) {
+    try {
+      let respuesta = await fetch(URL_API, {
+        method: "POST",
+        body: JSON.stringify(datos)
+      });
+      return await respuesta.json();
+    } catch (e) {
+      console.error("Error en API:", e);
+      return { exito: false, mensaje: "Error de red con el servidor." };
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", async function() {
+    const select = document.getElementById("mensajero");
+    if (select) {
+      select.innerHTML = '<option value="">Cargando mensajeros...</option>';
+      let res = await llamarAPI({ accion: "obtenerListaMensajeros" });
+      select.innerHTML = '<option value="">Selecciona tu Nombre...</option>';
+      if (res.exito && res.lista) {
+        res.lista.forEach(nombre => {
+          let opt = document.createElement("option");
+          opt.value = nombre; opt.text = nombre;
+          select.add(opt);
+        });
+        verificarYSincronizarSesion();
+      }
+    }
+
+    let resMatriz = await llamarAPI({ accion: "matrizPrecios" });
+    if (resMatriz) {
+      tarifasMunicipios = resMatriz.tarifasMunicipios || {};
+      tiendasBodegaSet = new Set((resMatriz.tiendasBodega || []).map(t => t.trim().toUpperCase()));
+      tarifasBodegas = resMatriz.tarifasBodegas || {};
+    }
+  });
+
+  function verificarYSincronizarSesion() {
+    const sesionGuardada = localStorage.getItem('credenciales_mensajero_app');
+    if (sesionGuardada) {
+      try {
+        const creds = JSON.parse(sesionGuardada);
+        if (creds.mensajero && creds.pin) {
+          document.getElementById("mensajero").value = creds.mensajero;
+          document.getElementById("pin").value = creds.pin;
+          iniciarSesionYObtenerRuta();
+        }
+      } catch(e) { localStorage.removeItem('credenciales_mensajero_app'); }
+    }
+  }
+
+  function cerrarSesionMensajero() {
+    if (confirm("¿Deseas cerrar sesión?")) {
+      localStorage.removeItem('credenciales_mensajero_app');
+      document.getElementById("pin").value = "";
+      document.getElementById("bloqueRuta").style.display = "none";
+      document.getElementById("bloqueLogin").style.display = "block";
+      if (camaraActiva) detenerCamaraFlex();
+    }
+  }
+
+  function extraerNumero(v) { return v ? parseInt(String(v).replace(/\D/g, ''), 10) || 0 : 0; }
+  function formatCOP(v) { return '$' + Number(v || 0).toLocaleString('es-CO'); }
+
+  function formatearEntradaMoneda(inputElement) {
+    const num = extraerNumero(inputElement.value);
+    inputElement.value = num === 0 ? '' : formatCOP(num);
+    calcularArqueoFinal();
+  }
+
+  function obtenerTarifaPorEstado(p, estado) {
+    let estadoLimpio = String(estado || "").trim().toUpperCase();
+    if (estadoLimpio !== 'ENTREGADO' && estadoLimpio !== 'FALLIDO') return 0;
+
+    let valGrande = String(p.paquetegrande || p.paqueteGrande || "").trim().toUpperCase();
+    let esGrande = (valGrande === 'SI' || valGrande === 'TRUE');
+    let tarifaBase = 0;
+    let muniKey = String(p.municipio || "").trim().toUpperCase();
+    let nombreTienda = String(p.tienda || "").trim().toUpperCase();
+
+    if (esGrande && estadoLimpio === 'ENTREGADO') {
+      tarifaBase = Number(p.valordomicilio || p.valorDomicilio || 0) * 0.60;
+    } else {
+      let valoresMuni = (tiendasBodegaSet.has(nombreTienda) && tarifasBodegas[muniKey]) ? tarifasBodegas[muniKey] : (tarifasMunicipios[muniKey] || { entregado: 0, fallido: 0 });
+      if (estadoLimpio === 'ENTREGADO') {
+        tarifaBase = Number(valoresMuni.entregado || 0);
+        let mjActual = String(document.getElementById("mensajero").value || "").trim().toUpperCase();
+        if ((muniKey.includes("MEDELLIN")) && tarifaBase > 0) {
+          if (mjActual === "FERNANDO BODEGA" || mjActual === "ALEJANDRO GIRALDO") tarifaBase += 1000;
+        }
+      } else if (estadoLimpio === 'FALLIDO') {
+        tarifaBase = Number(valoresMuni.fallido || 0);
+      }
+    }
+    return tarifaBase;
+  }
+
+  async function iniciarSesionYObtenerRuta() {
+    const mensajero = document.getElementById("mensajero").value;
+    const pin = document.getElementById("pin").value;
+
+    if (!mensajero || !pin) { alert("Selecciona tu nombre e ingresa el PIN."); return; }
+
+    document.getElementById("loader").style.display = "block";
+    document.getElementById("bloqueLogin").style.display = "none";
+
+    let res = await llamarAPI({ accion: "validarPin", mensajero, pin });
+    document.getElementById("loader").style.display = "none";
+
+    if (!res.exito) {
+      alert("❌ " + res.mensaje);
+      document.getElementById("bloqueLogin").style.display = "block";
+      return;
+    }
+
+    localStorage.setItem('credenciales_mensajero_app', JSON.stringify({ mensajero, pin }));
+
+    misPaquetes = (res.paquetes || []).map(p => ({
+      ...p,
+      estadoMovil: p.estadoMovil || 'PENDIENTE',
+      notasMovil: p.observacion || p.notasMovil || '',
+      pagoMensajeroIndividual: obtenerTarifaPorEstado(p, p.estadoMovil || 'PENDIENTE')
+    }));
+
+    document.getElementById("bloqueRuta").style.display = "block";
+    dibujarTarjetas();
+  }
+
+  function toggleCamaraFlex() {
+    const readerDiv = document.getElementById("reader");
+    const btnCamara = document.getElementById("btnToggleCamara");
+
+    if (!camaraActiva) {
+      readerDiv.style.display = "block";
+      btnCamara.innerText = "🛑 Cerrar Cámara";
+      btnCamara.style.backgroundColor = "#dc3545";
+
+      if (!html5QrCode) {
+        html5QrCode = new Html5Qrcode("reader");
+      }
+
+      html5QrCode.start(
+        { facingMode: "environment" }, 
+        { fps: 15, qrbox: { width: 260, height: 140 } },
+        decodedText => {
+          if (navigator.vibrate) navigator.vibrate(100);
+          procesarConsecutivoEscaneado(decodedText);
+        },
+        errorMessage => {}
+      ).catch(err => {
+        alert("⚠️ No se pudo iniciar la cámara. Verifica los permisos del navegador.\n\nDetalle: " + err);
+        detenerCamaraFlex();
+      });
+
+      camaraActiva = true;
+    } else {
+      detenerCamaraFlex();
+    }
+  }
+
+  function detenerCamaraFlex() {
+    const readerDiv = document.getElementById("reader");
+    const btnCamara = document.getElementById("btnToggleCamara");
+
+    if (html5QrCode && html5QrCode.isScanning) {
+      html5QrCode.stop().then(() => {
+        readerDiv.style.display = "none";
+        btnCamara.innerText = "📷 Abrir Escáner de Cámara";
+        btnCamara.style.backgroundColor = "#17a2b8";
+        camaraActiva = false;
+      }).catch(() => {
+        readerDiv.style.display = "none";
+        btnCamara.innerText = "📷 Abrir Escáner de Cámara";
+        btnCamara.style.backgroundColor = "#17a2b8";
+        camaraActiva = false;
+      });
+    } else {
+      readerDiv.style.display = "none";
+      btnCamara.innerText = "📷 Abrir Escáner de Cámara";
+      btnCamara.style.backgroundColor = "#17a2b8";
+      camaraActiva = false;
+    }
+  }
+
+  function evaluarScanManual(e) { if (e.key === 'Enter') procesarCodigoManual(); }
+
+  function procesarCodigoManual() {
+    const input = document.getElementById("inputScanManual");
+    const texto = input.value.trim();
+    if (!texto) return;
+    input.value = "";
+    procesarConsecutivoEscaneado(texto);
+  }
+
+  async function procesarConsecutivoEscaneado(codigoRaw) {
+    let consecutivo = codigoRaw.trim().toUpperCase();
+    const matchCod = consecutivo.match(/IDINT\.?\s*(\d+)/i) || consecutivo.match(/CodInt[:\.]?\s*(\d+)/i);
+    if (matchCod) consecutivo = matchCod[1];
+
+    const existe = misPaquetes.find(p => String(p.consecutivo).trim().toUpperCase() === consecutivo);
+    if (existe) {
+      alert("⚠️ El paquete " + consecutivo + " ya se encuentra en tu ruta.");
+      return;
+    }
+
+    let res = await llamarAPI({ accion: "buscarPaquete", consecutivo });
+    if (!res.exito || !res.registro) {
+      alert("❌ No se encontró ningún paquete con el código: " + consecutivo);
+      return;
+    }
+
+    let reg = res.registro;
+    let nuevoPaquete = {
+      ...reg,
+      consecutivo: consecutivo,
+      estadoMovil: 'PENDIENTE',
+      notasMovil: '',
+      pagoMensajeroIndividual: obtenerTarifaPorEstado(reg, 'PENDIENTE')
+    };
+    misPaquetes.unshift(nuevoPaquete);
+    dibujarTarjetas();
+    alert("✅ Paquete " + consecutivo + " agregado exitosamente.");
+  }
+
+  function dibujarTarjetas() {
+    const contenedor = document.getElementById("contenedorTarjetas");
+    contenedor.innerHTML = "";
+
+    let pendientes = 0, entregados = 0, fallidos = 0, noLlevados = 0;
+    let recaudoTotal = 0, pagoTotalMensajero = 0;
+
+    misPaquetes.forEach((p, index) => {
+      if (p.estadoMovil === 'PENDIENTE') pendientes++;
+      else if (p.estadoMovil === 'ENTREGADO') {
+        entregados++; recaudoTotal += Number(p.valor || 0); pagoTotalMensajero += Number(p.pagoMensajeroIndividual || 0);
+      } else if (p.estadoMovil === 'FALLIDO') { fallidos++; pagoTotalMensajero += Number(p.pagoMensajeroIndividual || 0); }
+      else if (p.estadoMovil === 'NO LLEVADO') noLlevados++;
+
+      const card = document.createElement("div");
+      card.className = 'card-paquete ' + (p.estadoMovil === 'ENTREGADO' ? 'estado-entregado' : p.estadoMovil === 'FALLIDO' ? 'estado-fallido' : '');
+
+      let queryMapa = (p.latitud && p.longitud) ? (p.latitud + ',' + p.longitud) : encodeURIComponent((p.direccion || '') + ', ' + (p.municipio || ''));
+      const linkMaps = 'https://www.google.com/maps/search/?api=1&query=' + queryMapa;
+      const telLimpio = String(p.telefono || '').replace(/\D/g, '');
+
+      card.innerHTML = `
+        <div class="card-header">
+          <span class="consecutivo">📦 Guía: ${p.consecutivo || 'N/A'}</span>
+          <span>${p.tienda || ''}</span>
+        </div>
+        <div class="info-fila">👤 <strong>Cliente:</strong> ${p.cliente || ''}</div>
+        <div class="info-fila">📍 <strong>Dirección:</strong> ${p.direccion || ''} (${p.municipio || ''})</div>
+        <div class="bloque-valores">
+          <span class="valor-cobrar">💵 Cobrar: ${formatCOP(p.valor)}</span>
+          <span class="valor-pago-mj">🛵 Tu Pago: ${formatCOP(p.pagoMensajeroIndividual)}</span>
+        </div>
+        <div class="acciones-card">
+          <a href="${linkMaps}" target="_blank" class="btn-accion btn-nav">📍 GPS</a>
+          <button type="button" class="btn-accion btn-ok" onclick="cambiarEstado(${index}, 'ENTREGADO')">✔️ Entregado</button>
+          <button type="button" class="btn-accion btn-fail" onclick="cambiarEstado(${index}, 'FALLIDO')">❌ Fallido</button>
+          <button type="button" class="btn-accion btn-skip" onclick="cambiarEstado(${index}, 'NO LLEVADO')">🚫 No Llevado</button>
+        </div>
+      `;
+      contenedor.appendChild(card);
+    });
+
+    document.getElementById("txtPendientes").innerText = pendientes;
+    document.getElementById("txtEntregados").innerText = entregados;
+    document.getElementById("txtFallidos").innerText = fallidos;
+    document.getElementById("txtNoLlevados").innerText = noLlevados;
+    document.getElementById("txtRecaudoTotal").innerText = formatCOP(recaudoTotal);
+    document.getElementById("txtPagoTotalMensajero").innerText = formatCOP(pagoTotalMensajero);
+    calcularArqueoFinal();
+  }
+
+  function cambiarEstado(index, nuevoEstado) {
+    misPaquetes[index].estadoMovil = nuevoEstado;
+    misPaquetes[index].pagoMensajeroIndividual = obtenerTarifaPorEstado(misPaquetes[index], nuevoEstado);
+    llamarAPI({
+      accion: "registrarNovedad",
+      consecutivo: misPaquetes[index].consecutivo,
+      estado: nuevoEstado,
+      observacion: ""
+    });
+    dibujarTarjetas();
+  }
+
+  function calcularArqueoFinal() {
+    const recaudoTotal = misPaquetes.filter(p => p.estadoMovil === 'ENTREGADO').reduce((sum, p) => sum + Number(p.valor || 0), 0);
+    const totalPagoMJ = misPaquetes.reduce((sum, p) => sum + Number(p.pagoMensajeroIndividual || 0), 0);
+    const descuentos = extraerNumero(document.getElementById("inputDescuentos")?.value);
+    const transferencias = extraerNumero(document.getElementById("inputTransferencias")?.value);
+    const ajustePrecios = extraerNumero(document.getElementById("inputAjustePrecios")?.value);
+    const ajusteDomicilios = extraerNumero(document.getElementById("inputAjusteDomicilios")?.value);
+
+    const totalEfectivo = recaudoTotal - descuentos - transferencias + ajustePrecios;
+    const totalLiquidacion = totalEfectivo - totalPagoMJ - ajusteDomicilios;
+
+    if (document.getElementById("lblRecaudoTotal")) {
+      document.getElementById("lblRecaudoTotal").innerText = formatCOP(recaudoTotal);
+      document.getElementById("lblTotalEfectivo").innerText = formatCOP(totalEfectivo);
+      document.getElementById("lblPagoMensajero").innerText = formatCOP(totalPagoMJ);
+      document.getElementById("lblTotalLiquidacion").innerText = formatCOP(totalLiquidacion);
+    }
+  }
+</script>
+</body>
+</html>
