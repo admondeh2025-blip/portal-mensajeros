@@ -3,7 +3,6 @@
 <head>
   <base target="_top">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- Librería para escaneo de códigos QR y de barras mediante la cámara -->
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
   <style>
     html, body { margin: 0; padding: 0; background-color: #001c5b; font-family: 'Segoe UI', Arial, sans-serif; color: #333; }
@@ -21,10 +20,15 @@
     input, select { width: 100%; padding: 12px; margin-bottom: 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; box-sizing: border-box; }
     button.btn-principal { width: 100%; padding: 14px; background: #000; color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; cursor: pointer; }
     
-    /* MÓDULO DE ESCANEO CONTINUO (ESTILO FLEX) */
+    /* MÓDULO DE ESCANEO ESTILO FLEX */
     .caja-escaneo { background: white; border-radius: 12px; padding: 15px; margin-bottom: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
     .input-manual-group { display: flex; gap: 8px; margin-top: 5px; }
     .input-manual-group input { margin-bottom: 0; }
+
+    /* Alerta visual flotante interna (Reemplaza los molestos alert()) */
+    #toastMensaje { display: none; padding: 10px; margin-bottom: 10px; border-radius: 8px; font-weight: bold; text-align: center; font-size: 14px; }
+    .toast-exito { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    .toast-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
 
     /* Contadores de Ruta y Totales */
     .resumen-ruta { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 15px; flex-wrap: wrap; }
@@ -58,7 +62,6 @@
     .btn-fail { background: #dc3545; color: white; }
     .btn-skip { background: #fd7e14; color: white; }
 
-    /* Módulo de Arqueo y Cierre */
     .caja-arqueo { background: white; border-radius: 12px; padding: 16px; margin-top: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
     .caja-arqueo h3 { margin: 0 0 12px 0; font-size: 16px; color: #001c5b; text-align: center; border-bottom: 2px solid #eef2ff; padding-bottom: 8px; }
     .grid-arqueo { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
@@ -99,10 +102,13 @@
       <button class="btn-logout" onclick="cerrarSesionMensajero()">🔒 Salir</button>
       <div style="clear:both;"></div>
 
-      <!-- MÓDULO DE ESCANEO OPTIMIZADO (QR Y BARRAS SIN BUCLE) -->
+      <!-- MÓDULO DE ESCANEO FLUIDO ESTILO FLEX -->
       <div class="caja-escaneo" style="text-align: center;">
         <button class="btn-principal" id="btnToggleCamara" style="background: #17a2b8; margin-bottom: 10px;" onclick="toggleCamaraFlex()">📷 Abrir Escáner de Cámara</button>
         
+        <!-- Notificación visual interna en lugar de alertas molestas -->
+        <div id="toastMensaje"></div>
+
         <div id="reader" style="width: 100%; max-width: 400px; margin: 0 auto; display: none; border-radius: 8px; overflow: hidden;"></div>
         
         <div class="input-manual-group" style="margin-top: 10px;">
@@ -176,7 +182,7 @@
   </div>
 
 <script>
-  const URL_API = "https://script.google.com/macros/s/AKfycbyExBLNu0HK_cBeLKX63-NPeVaLxN34T1yOhSR3R_8WTadJToKItN9nKTH5MEH1tjDt/exec";
+  const URL_API = "https://script.google.com/macros/s/AKfycbyExBLNu0HK_cBeLKX63-NPeVaLxN34T1yOhSR3R_8WTadJToKItN9nKTH5MEH1tjDt/exec"; // Reemplaza si es necesario con tu URL actual
 
   let misPaquetes = [];
   let tarifasMunicipios = {};
@@ -184,7 +190,8 @@
   let tiendasBodegaSet = new Set();
   let html5QrCode = null;
   let camaraActiva = false;
-  let ultimaLecturaTime = 0; // Control anti-bucle para evitar escaneos repetidos de golpe
+  let ultimaLecturaTime = 0;
+  let ultimoCodigoLeido = "";
 
   async function llamarAPI(datos) {
     try {
@@ -245,6 +252,14 @@
       document.getElementById("bloqueLogin").style.display = "block";
       if (camaraActiva) detenerCamaraFlex();
     }
+  }
+
+  function mostrarToast(texto, tipo) {
+    const toast = document.getElementById("toastMensaje");
+    toast.innerText = texto;
+    toast.className = tipo === 'exito' ? 'toast-exito' : 'toast-error';
+    toast.style.display = "block";
+    setTimeout(() => { toast.style.display = "none"; }, 3500);
   }
 
   function extraerNumero(v) { return v ? parseInt(String(v).replace(/\D/g, ''), 10) || 0 : 0; }
@@ -327,17 +342,19 @@
         html5QrCode = new Html5Qrcode("reader");
       }
 
-      // Configuración abierta para leer tanto códigos QR cuadrados como barras rectangulares
-      const configEscaneo = { fps: 10, qrbox: { width: 250, height: 250 } };
+      // Visor amplio (300x300) adaptable para leer tanto QR como códigos de barras con facilidad
+      const configEscaneo = { fps: 15, qrbox: { width: 300, height: 300 } };
       
       html5QrCode.start(
         { facingMode: "environment" }, 
         configEscaneo,
         decodedText => {
           let ahora = Date.now();
-          // Anti-bucle: ignora lecturas duplicadas en menos de 3 segundos del mismo código
-          if (ahora - ultimaLecturaTime < 3000) return;
+          // Bloqueo de seguridad: Evita leer el mismo código repetidamente en menos de 4 segundos
+          if (decodedText === ultimoCodigoLeido && (ahora - ultimaLecturaTime < 4000)) return;
+          
           ultimaLecturaTime = ahora;
+          ultimoCodigoLeido = decodedText;
 
           if (navigator.vibrate) navigator.vibrate(100);
           procesarConsecutivoEscaneado(decodedText);
@@ -395,13 +412,13 @@
 
     const existe = misPaquetes.find(p => String(p.consecutivo).trim().toUpperCase() === consecutivo);
     if (existe) {
-      alert("⚠️ El paquete " + consecutivo + " ya se encuentra en tu ruta.");
+      mostrarToast("⚠️ El paquete " + consecutivo + " ya está en tu ruta.", "error");
       return;
     }
 
     let res = await llamarAPI({ accion: "buscarPaquete", consecutivo });
     if (!res.exito || !res.registro) {
-      alert("❌ No se encontró ningún paquete con el código: " + consecutivo);
+      mostrarToast("❌ No se encontró el paquete: " + consecutivo, "error");
       return;
     }
 
@@ -415,7 +432,7 @@
     };
     misPaquetes.unshift(nuevoPaquete);
     dibujarTarjetas();
-    alert("✅ Paquete " + consecutivo + " agregado exitosamente.");
+    mostrarToast("✅ Paquete " + consecutivo + " agregado exitosamente.", "exito");
   }
 
   function dibujarTarjetas() {
