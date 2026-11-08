@@ -34,11 +34,9 @@
     .mini-card-mitad { flex: 1 1 calc(50% - 4px); padding: 10px 6px; border-radius: 8px; text-align: center; font-size: 12px; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.1); box-sizing: border-box; margin-top: 4px; }
     .mini-card-mitad span { display: block; font-size: 18px; margin-top: 2px; }
 
-    .instruccion-drag { text-align: center; color: white; font-size: 12px; margin-bottom: 10px; opacity: 0.9; }
-
     /* Tarjetas de Paquetes */
     .lista-paquetes { display: flex; flex-direction: column; gap: 15px; }
-    .card-paquete { background: white; border-radius: 12px; padding: 16px; box-shadow: 0 4px 8px rgba(0,0,0,0.15); border-left: 6px solid #ffc107; transition: transform 0.15s, background-color: 0.2s; user-select: none; touch-action: pan-y; }
+    .card-paquete { background: white; border-radius: 12px; padding: 16px; box-shadow: 0 4px 8px rgba(0,0,0,0.15); border-left: 6px solid #ffc107; }
     .card-paquete.estado-entregado { border-left-color: #28a745; background-color: #f4fbf6; }
     .card-paquete.estado-fallido { border-left-color: #dc3545; background-color: #fdf5f5; }
     .card-paquete.estado-no-llevado { border-left-color: #fd7e14; background-color: #fff9f5; }
@@ -59,13 +57,7 @@
     .btn-ok { background: #28a745; color: white; }
     .btn-fail { background: #dc3545; color: white; }
     .btn-skip { background: #fd7e14; color: white; }
-    
-    .btn-wa { background: #25D366; color: white; padding: 4px 8px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
-    .btn-wa svg { width: 18px; height: 18px; fill: currentColor; }
-    
-    .bloque-reporte { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #ccc; display: none; }
-    .badge-estado { display: inline-block; padding: 4px 10px; border-radius: 4px; font-weight: bold; font-size: 12px; color: white; margin-bottom: 8px; }
-    
+
     /* Módulo de Arqueo y Cierre */
     .caja-arqueo { background: white; border-radius: 12px; padding: 16px; margin-top: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
     .caja-arqueo h3 { margin: 0 0 12px 0; font-size: 16px; color: #001c5b; text-align: center; border-bottom: 2px solid #eef2ff; padding-bottom: 8px; }
@@ -93,26 +85,21 @@
 
   <div class="container">
     
-    <!-- LOGIN CON PIN Y ASIGNACIÓN AUTOMÁTICA DE RUTA -->
     <div class="caja-ingreso" id="bloqueLogin">
       <select id="mensajero">
         <option value="">Selecciona tu Nombre...</option>
       </select>
-      
       <input type="password" id="pin" placeholder="Introduce tu PIN de seguridad" pattern="\d*" inputmode="numeric">
-      
       <button class="btn-principal" onclick="iniciarSesionYObtenerRuta()">INGRESAR A MI RUTA</button>
     </div>
 
     <div id="loader">⏳ Validando credenciales y asignando ruta...</div>
 
-    <!-- BLOQUE PRINCIPAL DE TRABAJO -->
     <div id="bloqueRuta" style="display: none;">
-      
       <button class="btn-logout" onclick="cerrarSesionMensajero()">🔒 Salir</button>
       <div style="clear:both;"></div>
 
-      <!-- MÓDULO DE ESCANEO CONTINUO (ESTILO FLEX) -->
+      <!-- MÓDULO DE ESCANEO OPTIMIZADO (QR Y BARRAS SIN BUCLE) -->
       <div class="caja-escaneo" style="text-align: center;">
         <button class="btn-principal" id="btnToggleCamara" style="background: #17a2b8; margin-bottom: 10px;" onclick="toggleCamaraFlex()">📷 Abrir Escáner de Cámara</button>
         
@@ -143,7 +130,6 @@
 
       <div class="lista-paquetes" id="contenedorTarjetas"></div>
 
-      <!-- MÓDULO DE ARQUEO Y LIQUIDACIÓN -->
       <div class="caja-arqueo" id="bloqueArqueo">
         <h3>📊 Arqueo y Liquidación de Cierre</h3>
         <div class="grid-arqueo">
@@ -190,7 +176,6 @@
   </div>
 
 <script>
-  // 🔗 URL DE TU WEB APP DE GOOGLE APPS SCRIPT (Cámbiala por la tuya)
   const URL_API = "https://script.google.com/macros/s/AKfycbyExBLNu0HK_cBeLKX63-NPeVaLxN34T1yOhSR3R_8WTadJToKItN9nKTH5MEH1tjDt/exec";
 
   let misPaquetes = [];
@@ -199,11 +184,7 @@
   let tiendasBodegaSet = new Set();
   let html5QrCode = null;
   let camaraActiva = false;
-
-  let datosArqueoCalculados = {
-    descuentos: 0, transferencias: 0, ajustePrecios: 0, ajusteDomicilios: 0,
-    recaudoTotal: 0, totalPagoMJ: 0, totalEfectivo: 0, totalLiquidacion: 0
-  };
+  let ultimaLecturaTime = 0; // Control anti-bucle para evitar escaneos repetidos de golpe
 
   async function llamarAPI(datos) {
     try {
@@ -346,10 +327,18 @@
         html5QrCode = new Html5Qrcode("reader");
       }
 
+      // Configuración abierta para leer tanto códigos QR cuadrados como barras rectangulares
+      const configEscaneo = { fps: 10, qrbox: { width: 250, height: 250 } };
+      
       html5QrCode.start(
         { facingMode: "environment" }, 
-        { fps: 15, qrbox: { width: 260, height: 140 } },
+        configEscaneo,
         decodedText => {
+          let ahora = Date.now();
+          // Anti-bucle: ignora lecturas duplicadas en menos de 3 segundos del mismo código
+          if (ahora - ultimaLecturaTime < 3000) return;
+          ultimaLecturaTime = ahora;
+
           if (navigator.vibrate) navigator.vibrate(100);
           procesarConsecutivoEscaneado(decodedText);
         },
@@ -448,7 +437,6 @@
 
       let queryMapa = (p.latitud && p.longitud) ? (p.latitud + ',' + p.longitud) : encodeURIComponent((p.direccion || '') + ', ' + (p.municipio || ''));
       const linkMaps = 'https://www.google.com/maps/search/?api=1&query=' + queryMapa;
-      const telLimpio = String(p.telefono || '').replace(/\D/g, '');
 
       card.innerHTML = `
         <div class="card-header">
