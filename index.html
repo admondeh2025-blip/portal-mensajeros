@@ -64,9 +64,14 @@
     .btn-accion { flex: 1; min-width: 70px; padding: 10px 6px; border: none; border-radius: 6px; font-weight: bold; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px; text-decoration: none; }
     
     .btn-nav { background: #e8f5e9; color: #1b5e20; border: 1px solid #c8e6c9; }
-    .btn-ok { background: #28a745; color: white; }
-    .btn-fail { background: #dc3545; color: white; }
-    .btn-skip { background: #fd7e14; color: white; }
+    .btn-ok { background: #28a745; color: white; opacity: 0.6; }
+    .btn-ok.activo { opacity: 1; box-shadow: 0 0 0 2px #fff, 0 0 0 4px #28a745; }
+
+    .btn-fail { background: #dc3545; color: white; opacity: 0.6; }
+    .btn-fail.activo { opacity: 1; box-shadow: 0 0 0 2px #fff, 0 0 0 4px #dc3545; }
+
+    .btn-skip { background: #fd7e14; color: white; opacity: 0.6; }
+    .btn-skip.activo { opacity: 1; box-shadow: 0 0 0 2px #fff, 0 0 0 4px #fd7e14; }
     
     .bloque-reporte { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #ccc; display: none; }
     .badge-estado { display: inline-block; padding: 4px 10px; border-radius: 4px; font-weight: bold; font-size: 12px; color: white; margin-bottom: 8px; }
@@ -351,18 +356,41 @@
 
     localStorage.setItem('credenciales_mensajero_app', JSON.stringify({ mensajero, ruta, pin }));
 
-    // 🌟 RENDERIZAR SALUDO SUPERIOR
     document.getElementById("saludoMensajeroRuta").innerHTML = `Hola <strong>${mensajero}</strong> estamos en tu ruta <strong>#${ruta}</strong>`;
 
-    misPaquetes = (res.paquetes || []).map(p => ({
-      ...p,
-      estadoMovil: p.estado || p.estadoMovil || 'PENDIENTE',
-      notasMovil: p.observacion || p.notasMovil || '',
-      pagoMensajeroIndividual: obtenerTarifaPorEstado(p, p.estado || p.estadoMovil || 'PENDIENTE')
-    }));
+    // 🌟 RECUPERAR ORDEN Y ESTADOS LOCALES SI EXISTEN
+    const claveStorageRuta = `paquetes_ruta_${mensajero}_${ruta}`;
+    const paquetesGuardadosLocales = localStorage.getItem(claveStorageRuta);
+
+    if (paquetesGuardadosLocales) {
+      try {
+        misPaquetes = JSON.parse(paquetesGuardadosLocales);
+      } catch (e) {
+        misPaquetes = [];
+      }
+    }
+
+    if (!misPaquetes || misPaquetes.length === 0) {
+      misPaquetes = (res.paquetes || []).map(p => ({
+        ...p,
+        estadoMovil: p.estado || p.estadoMovil || 'PENDIENTE',
+        notasMovil: p.observacion || p.notasMovil || '',
+        pagoMensajeroIndividual: obtenerTarifaPorEstado(p, p.estado || p.estadoMovil || 'PENDIENTE')
+      }));
+      guardarPaquetesLocalmente();
+    }
 
     document.getElementById("bloqueRuta").style.display = "block";
     dibujarTarjetas();
+  }
+
+  function guardarPaquetesLocalmente() {
+    const mensajero = document.getElementById("mensajero").value;
+    const ruta = document.getElementById("ruta").value;
+    if (mensajero && ruta) {
+      const claveStorageRuta = `paquetes_ruta_${mensajero}_${ruta}`;
+      localStorage.setItem(claveStorageRuta, JSON.stringify(misPaquetes));
+    }
   }
 
   function toggleCamaraFlex() {
@@ -443,10 +471,8 @@
   }
 
   async function procesarConsecutivoEscaneado(codigoRaw) {
-    // 🌟 ENVIAMOS EL TEXTO COMPLETO TAL CUAL LO CAPTURÓ LA CÁMARA AL SERVIDOR
     let consecutivo = codigoRaw.trim();
 
-    // Extraer identificador visual limpio para validación de duplicados locales
     let matchCheck = consecutivo.match(/IDINT\.?\s*(\d+)/i) || consecutivo.match(/CodInt[:\.]?\s*(\d+)/i) || consecutivo.match(/(C-\d+|HS\d+|[A-Z]{3,4}\d+|\d+)/i);
     let idVisualChequeo = matchCheck ? (matchCheck[1] || matchCheck[0]) : consecutivo;
 
@@ -480,7 +506,10 @@
       pagoMensajeroIndividual: obtenerTarifaPorEstado(reg, 'PENDIENTE')
     };
 
-    misPaquetes.unshift(nuevoPaquete);
+    // 🌟 1. AGREGA AL FINAL PARA QUE EL ORDEN SEA DEL 1 EN ADELANTE HACIA ABAJO
+    misPaquetes.push(nuevoPaquete);
+    guardarPaquetesLocalmente();
+
     dibujarTarjetas();
     mostrarNotificacionError("✅ Paquete agregado exitosamente.", true);
   }
@@ -524,6 +553,10 @@
 
       let colorBadge = p.estadoMovil === 'FALLIDO' ? '#dc3545' : '#fd7e14';
 
+      let claseOk = p.estadoMovil === 'ENTREGADO' ? 'btn-ok activo' : 'btn-ok';
+      let claseFail = p.estadoMovil === 'FALLIDO' ? 'btn-fail activo' : 'btn-fail';
+      let claseSkip = p.estadoMovil === 'NO LLEVADO' ? 'btn-skip activo' : 'btn-skip';
+
       card.innerHTML = `
         <div class="card-header">
           <span class="consecutivo">
@@ -549,15 +582,15 @@
         </div>
         <div class="acciones-card">
           <a href="${linkMaps}" target="_blank" class="btn-accion btn-nav">📍 GPS</a>
-          <button type="button" class="btn-accion btn-ok" onclick="cambiarEstado(${index}, 'ENTREGADO')">✔️ Entregado</button>
-          <button type="button" class="btn-accion btn-fail" onclick="cambiarEstado(${index}, 'FALLIDO')">❌ Fallido</button>
-          <button type="button" class="btn-accion btn-skip" onclick="cambiarEstado(${index}, 'NO LLEVADO')">🚫 No Llevado</button>
+          <button type="button" class="btn-accion ${claseOk}" onclick="cambiarEstado(${index}, 'ENTREGADO')">✔️ Entregado</button>
+          <button type="button" class="btn-accion ${claseFail}" onclick="cambiarEstado(${index}, 'FALLIDO')">❌ Fallido</button>
+          <button type="button" class="btn-accion ${claseSkip}" onclick="cambiarEstado(${index}, 'NO LLEVADO')">🚫 No Llevado</button>
         </div>
-        <div class="bloque-reporte" id="reporte-${index}" style="${p.estadoMovil !== 'PENDIENTE' ? 'display:block;' : 'display:none;'}">
+        <div class="bloque-reporte" id="reporte-${index}" style="${(p.estadoMovil === 'FALLIDO' || p.estadoMovil === 'NO LLEVADO') ? 'display:block;' : 'display:none;'}">
           <span class="badge-estado" style="background:${colorBadge}">${p.estadoMovil}</span>
           <div>
             <input type="text" id="input-nota-${index}" value="${p.notasMovil || ''}" placeholder="Motivo obligatorio...">
-            <button class="btn-principal" style="padding:8px; font-size:14px; margin-top:5px; background:#001c5b;" onclick="guardarNota(${index})">💾 Guardar Estado</button>
+            <button class="btn-principal" style="padding:8px; font-size:14px; margin-top:5px; background:#001c5b;" onclick="guardarNota(${index})">💾 Guardar Novedad</button>
           </div>
         </div>
       `;
@@ -574,13 +607,32 @@
   }
   
   function cambiarEstado(index, nuevoEstado) {
+    // 🌟 4. SI CLICKEA EL MISMO ESTADO, SE REVIERTE A PENDIENTE
+    if (misPaquetes[index].estadoMovil === nuevoEstado) {
+      misPaquetes[index].estadoMovil = 'PENDIENTE';
+      misPaquetes[index].notasMovil = '';
+      misPaquetes[index].pagoMensajeroIndividual = obtenerTarifaPorEstado(misPaquetes[index], 'PENDIENTE');
+      
+      guardarPaquetesLocalmente();
+      sincronizarConServidor(index);
+      dibujarTarjetas();
+      mostrarNotificacionError("🔄 Estado revertido a Pendiente", true);
+      return;
+    }
+
     misPaquetes[index].estadoMovil = nuevoEstado;
     misPaquetes[index].pagoMensajeroIndividual = obtenerTarifaPorEstado(misPaquetes[index], nuevoEstado);
-    if (nuevoEstado === 'ENTREGADO') misPaquetes[index].notasMovil = '';
     
-    sincronizarConServidor(index);
-    dibujarTarjetas();
-    if (nuevoEstado !== 'ENTREGADO') {
+    if (nuevoEstado === 'ENTREGADO') {
+      misPaquetes[index].notasMovil = ''; // 🌟 3. ENTREGADO NO REQUIERE NOTA OBLIGATORIA
+      guardarPaquetesLocalmente();
+      sincronizarConServidor(index);
+      dibujarTarjetas();
+      mostrarNotificacionError("✔️ Paquete marcado como Entregado", true);
+    } else {
+      guardarPaquetesLocalmente();
+      sincronizarConServidor(index);
+      dibujarTarjetas();
       setTimeout(() => {
         const input = document.getElementById('input-nota-' + index);
         if (input) input.focus();
@@ -593,12 +645,14 @@
     const nota = notaInput ? notaInput.value.trim() : '';
     const estadoActual = misPaquetes[index].estadoMovil;
 
+    // 🌟 3. NOTA OBLIGATORIA SOLO PARA FALLIDOS Y NO LLEVADOS
     if ((estadoActual === 'FALLIDO' || estadoActual === 'NO LLEVADO') && !nota) {
-      alert("⚠️ Debes escribir el motivo.");
+      alert("⚠️ Debes escribir el motivo de la novedad.");
       return;
     }
 
     misPaquetes[index].notasMovil = nota;
+    guardarPaquetesLocalmente();
     sincronizarConServidor(index);
     dibujarTarjetas();
     mostrarNotificacionError("💾 Novedad guardada con éxito", true);
@@ -606,11 +660,12 @@
 
   function sincronizarConServidor(index) {
     const p = misPaquetes[index];
+    // 🌟 5. ENVIANDO CORRECTAMENTE LA OBSERVACIÓN PARA QUE LLEGUE A LA COLUMNA P
     llamarAPI({
       accion: "registrarNovedad",
       consecutivo: p.consecutivo,
       estado: p.estadoMovil,
-      observacion: p.notasMovil
+      observacion: p.notasMovil || ""
     });
   }
 
