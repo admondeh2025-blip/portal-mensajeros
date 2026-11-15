@@ -358,10 +358,10 @@
 
     document.getElementById("saludoMensajeroRuta").innerHTML = `Hola <strong>${mensajero}</strong> estamos en tu ruta <strong>#${ruta}</strong>`;
 
-    // 🌟 RECUPERAR ORDEN Y ESTADOS LOCALES SI EXISTEN
     const claveStorageRuta = `paquetes_ruta_${mensajero}_${ruta}`;
     const paquetesGuardadosLocales = localStorage.getItem(claveStorageRuta);
 
+    misPaquetes = [];
     if (paquetesGuardadosLocales) {
       try {
         misPaquetes = JSON.parse(paquetesGuardadosLocales);
@@ -370,14 +370,9 @@
       }
     }
 
-    if (!misPaquetes || misPaquetes.length === 0) {
-      misPaquetes = (res.paquetes || []).map(p => ({
-        ...p,
-        estadoMovil: p.estado || p.estadoMovil || 'PENDIENTE',
-        notasMovil: p.observacion || p.notasMovil || '',
-        pagoMensajeroIndividual: obtenerTarifaPorEstado(p, p.estado || p.estadoMovil || 'PENDIENTE')
-      }));
-      guardarPaquetesLocalmente();
+    // Si no hay nada guardado localmente, iniciamos la lista vacía para que el orden se genere 100% por escaneo
+    if (!misPaquetes) {
+      misPaquetes = [];
     }
 
     document.getElementById("bloqueRuta").style.display = "block";
@@ -506,7 +501,7 @@
       pagoMensajeroIndividual: obtenerTarifaPorEstado(reg, 'PENDIENTE')
     };
 
-    // 🌟 1. AGREGA AL FINAL PARA QUE EL ORDEN SEA DEL 1 EN ADELANTE HACIA ABAJO
+    // 🌟 GARANTIZA ESTRICTAMENTE QUE EL NUEVO PAQUETE SE AÑADE AL FINAL (El #1 se queda arriba, el #2 abajo, etc.)
     misPaquetes.push(nuevoPaquete);
     guardarPaquetesLocalmente();
 
@@ -607,7 +602,6 @@
   }
   
   function cambiarEstado(index, nuevoEstado) {
-    // 🌟 4. SI CLICKEA EL MISMO ESTADO, SE REVIERTE A PENDIENTE
     if (misPaquetes[index].estadoMovil === nuevoEstado) {
       misPaquetes[index].estadoMovil = 'PENDIENTE';
       misPaquetes[index].notasMovil = '';
@@ -624,7 +618,7 @@
     misPaquetes[index].pagoMensajeroIndividual = obtenerTarifaPorEstado(misPaquetes[index], nuevoEstado);
     
     if (nuevoEstado === 'ENTREGADO') {
-      misPaquetes[index].notasMovil = ''; // 🌟 3. ENTREGADO NO REQUIERE NOTA OBLIGATORIA
+      misPaquetes[index].notasMovil = '';
       guardarPaquetesLocalmente();
       sincronizarConServidor(index);
       dibujarTarjetas();
@@ -645,7 +639,6 @@
     const nota = notaInput ? notaInput.value.trim() : '';
     const estadoActual = misPaquetes[index].estadoMovil;
 
-    // 🌟 3. NOTA OBLIGATORIA SOLO PARA FALLIDOS Y NO LLEVADOS
     if ((estadoActual === 'FALLIDO' || estadoActual === 'NO LLEVADO') && !nota) {
       alert("⚠️ Debes escribir el motivo de la novedad.");
       return;
@@ -660,7 +653,6 @@
 
   function sincronizarConServidor(index) {
     const p = misPaquetes[index];
-    // 🌟 5. ENVIANDO CORRECTAMENTE LA OBSERVACIÓN PARA QUE LLEGUE A LA COLUMNA P
     llamarAPI({
       accion: "registrarNovedad",
       consecutivo: p.consecutivo,
