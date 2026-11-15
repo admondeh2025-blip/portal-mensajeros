@@ -13,6 +13,10 @@
     .header { text-align: center; padding: 5px 10px 15px 10px; color: white; }
     .header h2 { margin: 0; font-size: 20px; font-weight: 500; }
     .header p { margin: 5px 0 0 0; opacity: 0.8; font-size: 13px; }
+
+    /* Saludo personalizado de ruta */
+    .saludo-ruta-box { background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 8px; padding: 10px; margin-bottom: 15px; text-align: center; color: #fff; font-size: 15px; }
+    .saludo-ruta-box strong { color: #ffc107; }
     
     .container { width: 92%; max-width: 500px; margin: 0 auto 30px auto; }
     
@@ -105,10 +109,16 @@
     <div id="loader">⏳ Validando credenciales y cargando ruta...</div>
 
     <div id="bloqueRuta" style="display: none;">
+      
+      <!-- SALUDO DINÁMICO DE RUTA -->
+      <div class="saludo-ruta-box" id="saludoMensajeroRuta">
+        Hola <strong>-</strong> estamos en tu ruta <strong>-</strong>
+      </div>
+
       <button class="btn-logout" onclick="cerrarSesionMensajero()">🔒 Salir / Cambiar</button>
       <div style="clear:both;"></div>
 
-      <!-- MÓDULO DE ESCANEO CONTINUO ESTILO FLEX -->
+      <!-- MÓDULO DE ESCANEO -->
       <div class="caja-escaneo" style="text-align: center;">
         <button class="btn-principal" id="btnToggleCamara" style="background: #17a2b8; margin-bottom: 10px;" onclick="toggleCamaraFlex()">📷 Abrir Escáner de Cámara</button>
 
@@ -185,7 +195,6 @@
   </div>
 
 <script>
-  // 🔗 REEMPLAZA CON TU URL REAL DE LA WEB APP DE APPS SCRIPT
   const URL_API = "https://script.google.com/macros/s/AKfycbyExBLNu0HK_cBeLKX63-NPeVaLxN34T1yOhSR3R_8WTadJToKItN9nKTH5MEH1tjDt/exec";
 
   let misPaquetes = [];
@@ -342,6 +351,9 @@
 
     localStorage.setItem('credenciales_mensajero_app', JSON.stringify({ mensajero, ruta, pin }));
 
+    // 🌟 RENDERIZAR SALUDO SUPERIOR
+    document.getElementById("saludoMensajeroRuta").innerHTML = `Hola <strong>${mensajero}</strong> estamos en tu ruta <strong>#${ruta}</strong>`;
+
     misPaquetes = (res.paquetes || []).map(p => ({
       ...p,
       estadoMovil: p.estado || p.estadoMovil || 'PENDIENTE',
@@ -431,14 +443,22 @@
   }
 
   async function procesarConsecutivoEscaneado(codigoRaw) {
-    let consecutivo = codigoRaw.trim().toUpperCase();
-    const matchCod = consecutivo.match(/IDINT\.?\s*(\d+)/i) || consecutivo.match(/CodInt[:\.]?\s*(\d+)/i);
-    if (matchCod) consecutivo = matchCod[1];
+    // 🌟 ENVIAMOS EL TEXTO COMPLETO TAL CUAL LO CAPTURÓ LA CÁMARA AL SERVIDOR
+    let consecutivo = codigoRaw.trim();
 
-    // 🌟 CANDADO ESTRICTO DE DUPLICADOS EN LA RUTA
-    let yaExisteEnArray = misPaquetes.some(p => String(p.consecutivo).trim().toUpperCase() === consecutivo);
+    // Extraer identificador visual limpio para validación de duplicados locales
+    let matchCheck = consecutivo.match(/IDINT\.?\s*(\d+)/i) || consecutivo.match(/CodInt[:\.]?\s*(\d+)/i) || consecutivo.match(/(C-\d+|HS\d+|[A-Z]{3,4}\d+|\d+)/i);
+    let idVisualChequeo = matchCheck ? (matchCheck[1] || matchCheck[0]) : consecutivo;
+
+    let yaExisteEnArray = misPaquetes.some(p => {
+      let rawP = String(p.consecutivo || "").trim();
+      let mP = rawP.match(/IDINT\.?\s*(\d+)/i) || rawP.match(/CodInt[:\.]?\s*(\d+)/i) || rawP.match(/(C-\d+|HS\d+|[A-Z]{3,4}\d+|\d+)/i);
+      let idVisualP = mP ? (mP[1] || mP[0]) : rawP;
+      return idVisualP.toUpperCase() === idVisualChequeo.toUpperCase();
+    });
+
     if (yaExisteEnArray) {
-      mostrarNotificacionError("⚠️ Paquete " + consecutivo + " ya se encuentra en tu ruta.");
+      mostrarNotificacionError("⚠️ Paquete " + idVisualChequeo + " ya se encuentra en tu ruta.");
       return;
     }
 
@@ -462,7 +482,7 @@
 
     misPaquetes.unshift(nuevoPaquete);
     dibujarTarjetas();
-    mostrarNotificacionError("✅ Paquete " + consecutivo + " agregado exitosamente.", true);
+    mostrarNotificacionError("✅ Paquete agregado exitosamente.", true);
   }
 
   function dibujarTarjetas() {
@@ -481,7 +501,6 @@
       } else if (p.estadoMovil === 'FALLIDO') { fallidos++; pagoTotalMensajero += Number(p.pagoMensajeroIndividual || 0); }
       else if (p.estadoMovil === 'NO LLEVADO') noLlevados++;
 
-      // 🌟 Limpieza estricta: Extrae únicamente el código o consecutivo limpio para la cabecera
       let rawConsecutivo = String(p.consecutivo || 'N/A');
       let matchLimpio = rawConsecutivo.match(/IDINT\.?\s*(\d+)/i) || rawConsecutivo.match(/CodInt[:\.]?\s*(\d+)/i) || rawConsecutivo.match(/(C-\d+|HS\d+|[A-Z]{3,4}\d+|\d+)/i);
       let consecutivoLimpio = matchLimpio ? (matchLimpio[1] || matchLimpio[0]) : rawConsecutivo;
@@ -496,7 +515,6 @@
       let queryMapa = (p.latitud && p.longitud) ? (p.latitud + ',' + p.longitud) : encodeURIComponent((p.direccion || '') + ', ' + (p.municipio || ''));
       const linkMaps = 'https://www.google.com/maps/search/?api=1&query=' + queryMapa;
       
-      // 🌟 Detección robusta de campos de teléfono desde diferentes nombres posibles
       const numTelefono = p.telefono || p.TEL || p.TELEFONO || p.celular || p.CELULAR || p.tel || '';
       const telLimpio = String(numTelefono).replace(/\D/g, '');
       const linkWa = telLimpio ? 'https://wa.me/57' + telLimpio : '#';
