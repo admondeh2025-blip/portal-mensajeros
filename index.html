@@ -93,6 +93,7 @@
 
     #loader { display: none; color: white; text-align: center; margin: 20px 0; font-weight: bold; }
     .btn-logout { background: transparent; color: #ffc107; border: 1px solid #ffc107; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; float: right; margin-bottom: 10px; }
+    .btn-limpiar-cache { background: transparent; color: #ff6b6b; border: 1px solid #ff6b6b; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; float: left; margin-bottom: 10px; }
   </style>
 </head>
 <body>
@@ -126,6 +127,7 @@
         Hola <strong>-</strong> estamos en tu ruta <strong>-</strong>
       </div>
 
+      <button class="btn-limpiar-cache" onclick="limpiarCacheDuplicados()">Refrescar Ruta</button>
       <button class="btn-logout" onclick="cerrarSesionMensajero()">🔒 Salir / Cambiar</button>
       <div style="clear:both;"></div>
 
@@ -280,6 +282,19 @@
     }
   }
 
+  // 🌟 BOTÓN DE EMERGENCIA PARA LIMPIAR MEMORIA LOCAL SI QUEDARON DUPLICADOS
+  function limpiarCacheDuplicados() {
+    if (confirm("¿Deseas limpiar y sincronizar de nuevo la ruta desde cero para eliminar duplicados?")) {
+      const mensajero = document.getElementById("mensajero").value;
+      const ruta = document.getElementById("ruta").value;
+      if (mensajero && ruta) {
+        localStorage.removeItem(`paquetes_ruta_${mensajero}_${ruta}`);
+        iniciarSesionYObtenerRuta();
+        mostrarNotificacionError("🧹 Ruta limpiada correctamente", true);
+      }
+    }
+  }
+
   function mostrarNotificacionError(mensaje, esOk = false) {
     let contenedor = document.getElementById("contenedor-notificaciones");
     if (!contenedor) {
@@ -367,7 +382,6 @@
     const claveStorageRuta = `paquetes_ruta_${mensajero}_${ruta}`;
     const paquetesGuardadosLocales = localStorage.getItem(claveStorageRuta);
 
-    // 1. Mapeamos los paquetes limpios que vienen oficiales del servidor
     let paquetesServidor = (res.paquetes || []).map(p => ({
       ...p,
       estadoMovil: p.estado || p.estadoMovil || 'PENDIENTE',
@@ -375,35 +389,40 @@
       pagoMensajeroIndividual: obtenerTarifaPorEstado(p, p.estado || p.estadoMovil || 'PENDIENTE')
     }));
 
-    // 🌟 2. ANTI-DUPLICADOS Y ORDEN SEGURO:
-    // La base absoluta son los paquetes del servidor. Si hay registros locales (orden personalizado o escaneos manuales previos), 
-    // filtramos estrictamente para que NUNCA se duplique un paquete y se respete el orden que tenía el mensajero.
+    // 🌟 FILTRO ABSOLUTO ANTI-DUPLICADOS
+    let listaUnicaServidor = [];
+    paquetesServidor.forEach(ps => {
+      let consecutivoLimpio = String(ps.consecutivo || "").trim().toUpperCase();
+      let yaExiste = listaUnicaServidor.some(item => String(item.consecutivo || "").trim().toUpperCase() === consecutivoLimpio);
+      if (!yaExiste) listaUnicaServidor.push(ps);
+    });
+
     if (paquetesGuardadosLocales) {
       try {
         let locales = JSON.parse(paquetesGuardadosLocales);
         let listaOrdenada = [];
 
-        // Primero recuperamos en orden los locales que existan oficialmente en el servidor
+        // Recuperamos en orden los locales que existan oficialmente
         locales.forEach(loc => {
-          let matchServ = paquetesServidor.find(serv => 
-            String(serv.consecutivo).trim().toUpperCase() === String(loc.consecutivo).trim().toUpperCase()
-          );
+          let consecLoc = String(loc.consecutivo || "").trim().toUpperCase();
+          let matchServ = listaUnicaServidor.find(serv => String(serv.consecutivo || "").trim().toUpperCase() === consecLoc);
           if (matchServ) {
-            // Fusionamos por si el local tenía un estado avanzado o nota pendiente
-            listaOrdenada.push({
-              ...matchServ,
-              estadoMovil: loc.estadoMovil || matchServ.estadoMovil,
-              notasMovil: loc.notasMovil || matchServ.notasMovil,
-              pagoMensajeroIndividual: obtenerTarifaPorEstado(matchServ, loc.estadoMovil || matchServ.estadoMovil)
-            });
+            let yaEstaEnOrden = listaOrdenada.some(item => String(item.consecutivo || "").trim().toUpperCase() === consecLoc);
+            if (!yaEstaEstaEnOrden = !yaEstaEnOrden) { // Asegura unicidad
+              listaOrdenada.push({
+                ...matchServ,
+                estadoMovil: loc.estadoMovil || matchServ.estadoMovil,
+                notasMovil: loc.notasMovil || matchServ.notasMovil,
+                pagoMensajeroIndividual: obtenerTarifaPorEstado(matchServ, loc.estadoMovil || matchServ.estadoMovil)
+              });
+            }
           }
         });
 
-        // Luego agregamos al final cualquier paquete del servidor que estuviera pendiente de unirse
-        paquetesServidor.forEach(serv => {
-          let yaEsta = listaOrdenada.some(item => 
-            String(item.consecutivo).trim().toUpperCase() === String(serv.consecutivo).trim().toUpperCase()
-          );
+        // Agregamos cualquier sobrante del servidor de forma única
+        listaUnicaServidor.forEach(serv => {
+          let consecServ = String(serv.consecutivo || "").trim().toUpperCase();
+          let yaEsta = listaOrdenada.some(item => String(item.consecutivo || "").trim().toUpperCase() === consecServ);
           if (!yaEsta) {
             listaOrdenada.push(serv);
           }
@@ -411,10 +430,10 @@
 
         misPaquetes = listaOrdenada;
       } catch (e) {
-        misPaquetes = paquetesServidor;
+        misPaquetes = listaUnicaServidor;
       }
     } else {
-      misPaquetes = paquetesServidor;
+      misPaquetes = listaUnicaServidor;
     }
 
     guardarPaquetesLocalmente();
