@@ -367,6 +367,7 @@
     const claveStorageRuta = `paquetes_ruta_${mensajero}_${ruta}`;
     const paquetesGuardadosLocales = localStorage.getItem(claveStorageRuta);
 
+    // 1. Mapeamos los paquetes limpios que vienen oficiales del servidor
     let paquetesServidor = (res.paquetes || []).map(p => ({
       ...p,
       estadoMovil: p.estado || p.estadoMovil || 'PENDIENTE',
@@ -374,14 +375,41 @@
       pagoMensajeroIndividual: obtenerTarifaPorEstado(p, p.estado || p.estadoMovil || 'PENDIENTE')
     }));
 
+    // 🌟 2. ANTI-DUPLICADOS Y ORDEN SEGURO:
+    // La base absoluta son los paquetes del servidor. Si hay registros locales (orden personalizado o escaneos manuales previos), 
+    // filtramos estrictamente para que NUNCA se duplique un paquete y se respete el orden que tenía el mensajero.
     if (paquetesGuardadosLocales) {
       try {
         let locales = JSON.parse(paquetesGuardadosLocales);
-        misPaquetes = locales;
-        paquetesServidor.forEach(ps => {
-          let existe = misPaquetes.some(pl => String(pl.consecutivo).trim().toUpperCase() === String(ps.consecutivo).trim().toUpperCase());
-          if (!existe) misPaquetes.push(ps);
+        let listaOrdenada = [];
+
+        // Primero recuperamos en orden los locales que existan oficialmente en el servidor
+        locales.forEach(loc => {
+          let matchServ = paquetesServidor.find(serv => 
+            String(serv.consecutivo).trim().toUpperCase() === String(loc.consecutivo).trim().toUpperCase()
+          );
+          if (matchServ) {
+            // Fusionamos por si el local tenía un estado avanzado o nota pendiente
+            listaOrdenada.push({
+              ...matchServ,
+              estadoMovil: loc.estadoMovil || matchServ.estadoMovil,
+              notasMovil: loc.notasMovil || matchServ.notasMovil,
+              pagoMensajeroIndividual: obtenerTarifaPorEstado(matchServ, loc.estadoMovil || matchServ.estadoMovil)
+            });
+          }
         });
+
+        // Luego agregamos al final cualquier paquete del servidor que estuviera pendiente de unirse
+        paquetesServidor.forEach(serv => {
+          let yaEsta = listaOrdenada.some(item => 
+            String(item.consecutivo).trim().toUpperCase() === String(serv.consecutivo).trim().toUpperCase()
+          );
+          if (!yaEsta) {
+            listaOrdenada.push(serv);
+          }
+        });
+
+        misPaquetes = listaOrdenada;
       } catch (e) {
         misPaquetes = paquetesServidor;
       }
@@ -523,10 +551,9 @@
     mostrarNotificacionError("✅ Paquete agregado exitosamente.", true);
   }
 
-  // 🌟 FUNCIÓN PARA MOVER UN PAQUETE DE POSICIÓN ARRIBA O ABAJO MANUALMENTE
   function moverPosicion(index, direccion) {
     let nuevoIndex = index + direccion;
-    if (nuevoIndex < 0 || nuevoIndex >= misPaquetes.length) return; // Fuera de límites
+    if (nuevoIndex < 0 || nuevoIndex >= misPaquetes.length) return;
 
     let temp = misPaquetes[index];
     misPaquetes[index] = misPaquetes[nuevoIndex];
