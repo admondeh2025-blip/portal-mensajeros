@@ -361,20 +361,31 @@
     const claveStorageRuta = `paquetes_ruta_${mensajero}_${ruta}`;
     const paquetesGuardadosLocales = localStorage.getItem(claveStorageRuta);
 
-    misPaquetes = [];
+    let paquetesServidor = (res.paquetes || []).map(p => ({
+      ...p,
+      estadoMovil: p.estado || p.estadoMovil || 'PENDIENTE',
+      notasMovil: p.observacion || p.notasMovil || '',
+      pagoMensajeroIndividual: obtenerTarifaPorEstado(p, p.estado || p.estadoMovil || 'PENDIENTE')
+    }));
+
     if (paquetesGuardadosLocales) {
       try {
-        misPaquetes = JSON.parse(paquetesGuardadosLocales);
+        let locales = JSON.parse(paquetesGuardadosLocales);
+        // Fusionamos: Si ya había un orden local guardado en el teléfono, lo respetamos, pero aseguramos que estén todos los del servidor
+        misPaquetes = locales;
+        // Añadimos por si acaso los del servidor que no estuvieran en local
+        paquetesServidor.forEach(ps => {
+          let existe = misPaquetes.some(pl => String(pl.consecutivo).trim().toUpperCase() === String(ps.consecutivo).trim().toUpperCase());
+          if (!existe) misPaquetes.push(ps);
+        });
       } catch (e) {
-        misPaquetes = [];
+        misPaquetes = paquetesServidor;
       }
+    } else {
+      misPaquetes = paquetesServidor;
     }
 
-    // Si no hay nada guardado localmente, iniciamos la lista vacía para que el orden se genere 100% por escaneo
-    if (!misPaquetes) {
-      misPaquetes = [];
-    }
-
+    guardarPaquetesLocalmente();
     document.getElementById("bloqueRuta").style.display = "block";
     dibujarTarjetas();
   }
@@ -501,7 +512,6 @@
       pagoMensajeroIndividual: obtenerTarifaPorEstado(reg, 'PENDIENTE')
     };
 
-    // 🌟 GARANTIZA ESTRICTAMENTE QUE EL NUEVO PAQUETE SE AÑADE AL FINAL (El #1 se queda arriba, el #2 abajo, etc.)
     misPaquetes.push(nuevoPaquete);
     guardarPaquetesLocalmente();
 
