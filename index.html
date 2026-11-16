@@ -288,7 +288,6 @@
     }
   }
 
-  // 🌟 BOTÓN DE REFRESCAR RUTA (Limpia caché local y vuelve a pedir al servidor ordenado por Columna Y)
   function refrescarRutaServidor() {
     if (confirm("¿Deseas refrescar la ruta y sincronizarla con el servidor?")) {
       const mensajero = document.getElementById("mensajero").value;
@@ -395,7 +394,6 @@
       pagoMensajeroIndividual: obtenerTarifaPorEstado(p, p.estado || p.estadoMovil || 'PENDIENTE')
     }));
 
-    // 🌟 FILTRO ABSOLUTO ANTI-DUPLICADOS Y ORDENADO POR COLUMNA Y DEL SERVIDOR
     let listaUnicaServidor = [];
     paquetesServidor.forEach(ps => {
       let consecutivoLimpio = String(ps.consecutivo || "").trim().toUpperCase();
@@ -403,10 +401,10 @@
       if (!yaExiste) listaUnicaServidor.push(ps);
     });
 
-    // Ordenamos la lista que viene del servidor basándonos en la Columna Y (ordenGuardado o similar devuelto por el backend)
+    // Ordenamos respetando estrictamente el valor de la Columna Y (ordenColumnaY o orden) devuelto por el servidor
     listaUnicaServidor.sort((a, b) => {
-      let ordenA = Number(a.ordenColumnaY || a.orden || 999999);
-      let ordenB = Number(b.ordenColumnaY || b.orden || 999999);
+      let ordenA = (a.ordenColumnaY !== undefined && a.ordenColumnaY !== "") ? Number(a.ordenColumnaY) : 999999;
+      let ordenB = (b.ordenColumnaY !== undefined && b.ordenColumnaY !== "") ? Number(b.ordenColumnaY) : 999999;
       return ordenA - ordenB;
     });
 
@@ -448,7 +446,7 @@
     }
 
     guardarPaquetesLocalmente();
-    sincronizarOrdenCompletoServidor(); // Sincroniza las posiciones iniciales a la Columna Y
+    sincronizarOrdenCompletoServidor();
     document.getElementById("bloqueRuta").style.display = "block";
     dibujarTarjetas();
   }
@@ -462,7 +460,6 @@
     }
   }
 
-  // 🌟 SINCRONIZA EL ORDEN DE TODA LA LISTA HACIA LA COLUMNA Y EN GOOGLE SHEETS
   function sincronizarOrdenCompletoServidor() {
     let arrayOrdenado = misPaquetes.map((p, idx) => ({
       consecutivo: p.consecutivo,
@@ -592,7 +589,7 @@
 
     misPaquetes.push(nuevoPaquete);
     guardarPaquetesLocalmente();
-    sincronizarOrdenCompletoServidor(); // Actualiza la Columna Y al agregar abajo
+    sincronizarOrdenCompletoServidor();
 
     dibujarTarjetas();
     mostrarNotificacionError("✅ Paquete agregado exitosamente.", true);
@@ -607,7 +604,7 @@
     misPaquetes[nuevoIndex] = temp;
 
     guardarPaquetesLocalmente();
-    sincronizarOrdenCompletoServidor(); // Actualiza la Columna Y al mover con flechas
+    sincronizarOrdenCompletoServidor();
     dibujarTarjetas();
   }
 
@@ -771,17 +768,17 @@
     const totalPagoMJ = misPaquetes.reduce((sum, p) => sum + Number(p.pagoMensajeroIndividual || 0), 0);
     const descuentos = extraerNumero(document.getElementById("inputDescuentos")?.value);
     const transferencias = extraerNumero(document.getElementById("inputTransferencias")?.value);
-    const ajustePrecios = extraerMenuado ? 0 : extraerNumero(document.getElementById("inputAjustePrecios")?.value);
+    const ajustePrecios = extraerNumero(document.getElementById("inputAjustePrecios")?.value);
     const ajusteDomicilios = extraerNumero(document.getElementById("inputAjusteDomicilios")?.value);
 
-    const totalEfectivo = recaudoTotal - descuentos - transferencias + extraerNumero(document.getElementById("inputAjustePrecios")?.value);
+    const totalEfectivo = recaudoTotal - descuentos - transferencias + ajustePrecios;
     const totalLiquidacion = totalEfectivo - totalPagoMJ - ajusteDomicilios;
 
     if (document.getElementById("lblRecaudoTotal")) {
       document.getElementById("lblRecaudoTotal").innerText = formatCOP(recaudoTotal);
       document.getElementById("lblTotalEfectivo").innerText = formatCOP(totalEfectivo);
       document.getElementById("lblPagoMensajero").innerText = formatCOP(totalPagoMJ);
-      document.getElementById("lblTotalLiquidacion").innerText = formatCOP(totalLiquidacion);
+      document.getElementById("lblTotalLiquidacion").innerText = formatCentavos ? formatCOP(totalLiquidacion) : formatCOP(totalLiquidacion);
     }
   }
 </script>
