@@ -127,7 +127,7 @@
         Hola <strong>-</strong> estamos en tu ruta <strong>-</strong>
       </div>
 
-      <button class="btn-limpiar-cache" onclick="limpiarCacheDuplicados()">Refrescar Ruta</button>
+      <button class="btn-limpiar-cache" onclick="limpiarCacheDuplicados()">🧹 Limpiar Ruta Duplicada</button>
       <button class="btn-logout" onclick="cerrarSesionMensajero()">🔒 Salir / Cambiar</button>
       <div style="clear:both;"></div>
 
@@ -234,6 +234,17 @@
   }
 
   document.addEventListener("DOMContentLoaded", async function() {
+    await cargarListaMensajeros();
+    
+    let resMatriz = await llamarAPI({ accion: "matrizPrecios" });
+    if (resMatriz && resMatriz.exito) {
+      tarifasMunicipios = resMatriz.tarifasMunicipios || {};
+      tiendasBodegaSet = new Set((resMatriz.tiendasBodega || []).map(t => t.trim().toUpperCase()));
+      tarifasBodegas = resMatriz.tarifasBodegas || {};
+    }
+  });
+
+  async function cargarListaMensajeros() {
     const select = document.getElementById("mensajero");
     if (select) {
       select.innerHTML = '<option value="">Cargando mensajeros...</option>';
@@ -248,14 +259,7 @@
         verificarYSincronizarSesion();
       }
     }
-
-    let resMatriz = await llamarAPI({ accion: "matrizPrecios" });
-    if (resMatriz && resMatriz.exito) {
-      tarifasMunicipios = resMatriz.tarifasMunicipios || {};
-      tiendasBodegaSet = new Set((resMatriz.tiendasBodega || []).map(t => t.trim().toUpperCase()));
-      tarifasBodegas = resMatriz.tarifasBodegas || {};
-    }
-  });
+  }
 
   function verificarYSincronizarSesion() {
     const sesionGuardada = localStorage.getItem('credenciales_mensajero_app');
@@ -272,17 +276,21 @@
     }
   }
 
-  function cerrarSesionMensajero() {
+  // 🌟 MODIFICADO: Al cerrar sesión, limpia credenciales y vuelve a cargar el select de mensajeros
+  async function cerrarSesionMensajero() {
     if (confirm("¿Deseas cerrar sesión?")) {
       localStorage.removeItem('credenciales_mensajero_app');
       document.getElementById("pin").value = "";
+      document.getElementById("ruta").value = "";
       document.getElementById("bloqueRuta").style.display = "none";
       document.getElementById("bloqueLogin").style.display = "block";
       if (camaraActiva) detenerCamaraFlex();
+      
+      // Recargamos la lista de mensajeros para que nunca aparezca vacía
+      await cargarListaMensajeros();
     }
   }
 
-  // 🌟 BOTÓN DE EMERGENCIA PARA LIMPIAR MEMORIA LOCAL SI QUEDARON DUPLICADOS
   function limpiarCacheDuplicados() {
     if (confirm("¿Deseas limpiar y sincronizar de nuevo la ruta desde cero para eliminar duplicados?")) {
       const mensajero = document.getElementById("mensajero").value;
@@ -389,7 +397,6 @@
       pagoMensajeroIndividual: obtenerTarifaPorEstado(p, p.estado || p.estadoMovil || 'PENDIENTE')
     }));
 
-    // 🌟 FILTRO ABSOLUTO ANTI-DUPLICADOS
     let listaUnicaServidor = [];
     paquetesServidor.forEach(ps => {
       let consecutivoLimpio = String(ps.consecutivo || "").trim().toUpperCase();
@@ -402,13 +409,12 @@
         let locales = JSON.parse(paquetesGuardadosLocales);
         let listaOrdenada = [];
 
-        // Recuperamos en orden los locales que existan oficialmente
         locales.forEach(loc => {
           let consecLoc = String(loc.consecutivo || "").trim().toUpperCase();
           let matchServ = listaUnicaServidor.find(serv => String(serv.consecutivo || "").trim().toUpperCase() === consecLoc);
           if (matchServ) {
             let yaEstaEnOrden = listaOrdenada.some(item => String(item.consecutivo || "").trim().toUpperCase() === consecLoc);
-            if (!yaEstaEstaEnOrden = !yaEstaEnOrden) { // Asegura unicidad
+            if (!yaEstaEnOrden) {
               listaOrdenada.push({
                 ...matchServ,
                 estadoMovil: loc.estadoMovil || matchServ.estadoMovil,
@@ -419,7 +425,6 @@
           }
         });
 
-        // Agregamos cualquier sobrante del servidor de forma única
         listaUnicaServidor.forEach(serv => {
           let consecServ = String(serv.consecutivo || "").trim().toUpperCase();
           let yaEsta = listaOrdenada.some(item => String(item.consecutivo || "").trim().toUpperCase() === consecServ);
