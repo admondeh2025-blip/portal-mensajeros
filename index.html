@@ -51,8 +51,14 @@
     .card-paquete.estado-fallido { border-left-color: #dc3545; background-color: #fdf5f5; }
     .card-paquete.estado-no-llevado { border-left-color: #fd7e14; background-color: #fff9f5; }
     
-    .card-header { display: flex; justify-content: space-between; font-weight: bold; font-size: 14px; color: #666; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 6px; }
+    .card-header { display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 14px; color: #666; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 6px; }
     .consecutivo { color: #001c5b; font-size: 15px; }
+    
+    /* Botones de mover posición */
+    .controles-orden { display: flex; gap: 4px; }
+    .btn-orden { background: #e2e8f0; border: 1px solid #cbd5e1; color: #1e293b; padding: 2px 6px; border-radius: 4px; font-size: 12px; cursor: pointer; font-weight: bold; }
+    .btn-orden:hover { background: #cbd5e1; }
+
     .info-fila { margin: 6px 0; font-size: 15px; }
     .info-fila strong { color: #111; }
     
@@ -371,9 +377,7 @@
     if (paquetesGuardadosLocales) {
       try {
         let locales = JSON.parse(paquetesGuardadosLocales);
-        // Fusionamos: Si ya había un orden local guardado en el teléfono, lo respetamos, pero aseguramos que estén todos los del servidor
         misPaquetes = locales;
-        // Añadimos por si acaso los del servidor que no estuvieran en local
         paquetesServidor.forEach(ps => {
           let existe = misPaquetes.some(pl => String(pl.consecutivo).trim().toUpperCase() === String(ps.consecutivo).trim().toUpperCase());
           if (!existe) misPaquetes.push(ps);
@@ -519,6 +523,19 @@
     mostrarNotificacionError("✅ Paquete agregado exitosamente.", true);
   }
 
+  // 🌟 FUNCIÓN PARA MOVER UN PAQUETE DE POSICIÓN ARRIBA O ABAJO MANUALMENTE
+  function moverPosicion(index, direccion) {
+    let nuevoIndex = index + direccion;
+    if (nuevoIndex < 0 || nuevoIndex >= misPaquetes.length) return; // Fuera de límites
+
+    let temp = misPaquetes[index];
+    misPaquetes[index] = misPaquetes[nuevoIndex];
+    misPaquetes[nuevoIndex] = temp;
+
+    guardarPaquetesLocalmente();
+    dibujarTarjetas();
+  }
+
   function dibujarTarjetas() {
     const contenedor = document.getElementById("contenedorTarjetas");
     contenedor.innerHTML = "";
@@ -568,7 +585,10 @@
             <span style="background: #001c5b; color: white; padding: 2px 7px; border-radius: 4px; font-size: 12px; margin-right: 6px; font-weight: bold;">#${index + 1}</span>
             📦 Guía: ${consecutivoLimpio}
           </span>
-          <span>${p.tienda || ''}</span>
+          <div class="controles-orden">
+            <button type="button" class="btn-orden" onclick="moverPosicion(${index}, -1)" title="Mover Arriba">⬆️</button>
+            <button type="button" class="btn-orden" onclick="moverPosicion(${index}, 1)" title="Mover Abajo">⬇️</button>
+          </div>
         </div>
         <div class="info-fila">👤 <strong>Cliente:</strong> ${p.cliente || p.nombre || ''}</div>
         <div class="info-fila">📍 <strong>Dirección:</strong> ${p.direccion || ''} (${p.municipio || ''})</div>
