@@ -93,7 +93,7 @@
 
     #loader { display: none; color: white; text-align: center; margin: 20px 0; font-weight: bold; }
     .btn-logout { background: transparent; color: #ffc107; border: 1px solid #ffc107; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; float: right; margin-bottom: 10px; }
-    .btn-limpiar-cache { background: transparent; color: #ff6b6b; border: 1px solid #ff6b6b; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; float: left; margin-bottom: 10px; }
+    .btn-refrescar-ruta { background: #28a745; color: white; border: none; padding: 8px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; font-weight: bold; float: left; margin-bottom: 10px; }
   </style>
 </head>
 <body>
@@ -127,7 +127,7 @@
         Hola <strong>-</strong> estamos en tu ruta <strong>-</strong>
       </div>
 
-      <button class="btn-limpiar-cache" onclick="limpiarCacheDuplicados()">🧹 Limpiar Ruta Duplicada</button>
+      <button class="btn-refrescar-ruta" onclick="refrescarRutaServidor()">🔄 Refrescar Ruta</button>
       <button class="btn-logout" onclick="cerrarSesionMensajero()">🔒 Salir / Cambiar</button>
       <div style="clear:both;"></div>
 
@@ -276,7 +276,6 @@
     }
   }
 
-  // 🌟 MODIFICADO: Al cerrar sesión, limpia credenciales y vuelve a cargar el select de mensajeros
   async function cerrarSesionMensajero() {
     if (confirm("¿Deseas cerrar sesión?")) {
       localStorage.removeItem('credenciales_mensajero_app');
@@ -285,20 +284,19 @@
       document.getElementById("bloqueRuta").style.display = "none";
       document.getElementById("bloqueLogin").style.display = "block";
       if (camaraActiva) detenerCamaraFlex();
-      
-      // Recargamos la lista de mensajeros para que nunca aparezca vacía
       await cargarListaMensajeros();
     }
   }
 
-  function limpiarCacheDuplicados() {
-    if (confirm("¿Deseas limpiar y sincronizar de nuevo la ruta desde cero para eliminar duplicados?")) {
+  // 🌟 BOTÓN DE REFRESCAR RUTA (Limpia caché local y vuelve a pedir al servidor ordenado por Columna Y)
+  function refrescarRutaServidor() {
+    if (confirm("¿Deseas refrescar la ruta y sincronizarla con el servidor?")) {
       const mensajero = document.getElementById("mensajero").value;
       const ruta = document.getElementById("ruta").value;
       if (mensajero && ruta) {
         localStorage.removeItem(`paquetes_ruta_${mensajero}_${ruta}`);
         iniciarSesionYObtenerRuta();
-        mostrarNotificacionError("🧹 Ruta limpiada correctamente", true);
+        mostrarNotificacionError("🔄 Ruta refrescada con éxito", true);
       }
     }
   }
@@ -397,11 +395,19 @@
       pagoMensajeroIndividual: obtenerTarifaPorEstado(p, p.estado || p.estadoMovil || 'PENDIENTE')
     }));
 
+    // 🌟 FILTRO ABSOLUTO ANTI-DUPLICADOS Y ORDENADO POR COLUMNA Y DEL SERVIDOR
     let listaUnicaServidor = [];
     paquetesServidor.forEach(ps => {
       let consecutivoLimpio = String(ps.consecutivo || "").trim().toUpperCase();
       let yaExiste = listaUnicaServidor.some(item => String(item.consecutivo || "").trim().toUpperCase() === consecutivoLimpio);
       if (!yaExiste) listaUnicaServidor.push(ps);
+    });
+
+    // Ordenamos la lista que viene del servidor basándonos en la Columna Y (ordenGuardado o similar devuelto por el backend)
+    listaUnicaServidor.sort((a, b) => {
+      let ordenA = Number(a.ordenColumnaY || a.orden || 999999);
+      let ordenB = Number(b.ordenColumnaY || b.orden || 999999);
+      return ordenA - ordenB;
     });
 
     if (paquetesGuardadosLocales) {
@@ -442,6 +448,7 @@
     }
 
     guardarPaquetesLocalmente();
+    sincronizarOrdenCompletoServidor(); // Sincroniza las posiciones iniciales a la Columna Y
     document.getElementById("bloqueRuta").style.display = "block";
     dibujarTarjetas();
   }
@@ -453,6 +460,21 @@
       const claveStorageRuta = `paquetes_ruta_${mensajero}_${ruta}`;
       localStorage.setItem(claveStorageRuta, JSON.stringify(misPaquetes));
     }
+  }
+
+  // 🌟 SINCRONIZA EL ORDEN DE TODA LA LISTA HACIA LA COLUMNA Y EN GOOGLE SHEETS
+  function sincronizarOrdenCompletoServidor() {
+    let arrayOrdenado = misPaquetes.map((p, idx) => ({
+      consecutivo: p.consecutivo,
+      orden: idx + 1
+    }));
+
+    llamarAPI({
+      accion: "actualizarOrdenRuta",
+      mensajero: document.getElementById("mensajero").value,
+      numeroRuta: document.getElementById("ruta").value,
+      ordenes: arrayOrdenado
+    });
   }
 
   function toggleCamaraFlex() {
@@ -570,6 +592,7 @@
 
     misPaquetes.push(nuevoPaquete);
     guardarPaquetesLocalmente();
+    sincronizarOrdenCompletoServidor(); // Actualiza la Columna Y al agregar abajo
 
     dibujarTarjetas();
     mostrarNotificacionError("✅ Paquete agregado exitosamente.", true);
@@ -584,6 +607,7 @@
     misPaquetes[nuevoIndex] = temp;
 
     guardarPaquetesLocalmente();
+    sincronizarOrdenCompletoServidor(); // Actualiza la Columna Y al mover con flechas
     dibujarTarjetas();
   }
 
@@ -747,10 +771,10 @@
     const totalPagoMJ = misPaquetes.reduce((sum, p) => sum + Number(p.pagoMensajeroIndividual || 0), 0);
     const descuentos = extraerNumero(document.getElementById("inputDescuentos")?.value);
     const transferencias = extraerNumero(document.getElementById("inputTransferencias")?.value);
-    const ajustePrecios = extraerNumero(document.getElementById("inputAjustePrecios")?.value);
+    const ajustePrecios = extraerMenuado ? 0 : extraerNumero(document.getElementById("inputAjustePrecios")?.value);
     const ajusteDomicilios = extraerNumero(document.getElementById("inputAjusteDomicilios")?.value);
 
-    const totalEfectivo = recaudoTotal - descuentos - transferencias + ajustePrecios;
+    const totalEfectivo = recaudoTotal - descuentos - transferencias + extraerNumero(document.getElementById("inputAjustePrecios")?.value);
     const totalLiquidacion = totalEfectivo - totalPagoMJ - ajusteDomicilios;
 
     if (document.getElementById("lblRecaudoTotal")) {
