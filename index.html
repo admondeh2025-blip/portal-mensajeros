@@ -399,6 +399,7 @@
       ...p,
       estadoMovil: p.estado || p.estadoMovil || 'PENDIENTE',
       notasMovil: p.observacion || p.notasMovil || '',
+      enviadoServidor: (String(p.estado || p.estadoMovil || '').toUpperCase() === 'FALLIDO' && Boolean(String(p.observacion || p.notasMovil || '').trim())),
       pagoMensajeroIndividual: obtenerTarifaPorEstado(p, p.estado || p.estadoMovil || 'PENDIENTE')
     }));
 
@@ -431,6 +432,7 @@
                 ...matchServ,
                 estadoMovil: loc.estadoMovil || matchServ.estadoMovil,
                 notasMovil: loc.notasMovil || matchServ.notasMovil,
+                enviadoServidor: loc.enviadoServidor !== undefined ? loc.enviadoServidor : matchServ.enviadoServidor,
                 pagoMensajeroIndividual: obtenerTarifaPorEstado(matchServ, loc.estadoMovil || matchServ.estadoMovil)
               });
             }
@@ -592,6 +594,7 @@
       consecutivo: consecutivo,
       estadoMovil: 'PENDIENTE',
       notasMovil: '',
+      enviadoServidor: false,
       pagoMensajeroIndividual: obtenerTarifaPorEstado(reg, 'PENDIENTE')
     };
 
@@ -661,6 +664,9 @@
       let colorBadge = p.estadoMovil === 'FALLIDO' ? '#dc3545' : '#fd7e14';
       let esFallido = (p.estadoMovil === 'FALLIDO');
 
+      // Determinamos si el fallido ya fue enviado al servidor
+      const yaEnviado = Boolean(p.enviadoServidor || (esFallido && String(p.notasMovil || '').trim() && !archivosFotoSeleccionados[index]));
+
       let claseOk = p.estadoMovil === 'ENTREGADO' ? 'btn-ok activo' : 'btn-ok';
       let claseFail = p.estadoMovil === 'FALLIDO' ? 'btn-fail activo' : 'btn-fail';
       let claseSkip = p.estadoMovil === 'NO LLEVADO' ? 'btn-skip activo' : 'btn-skip';
@@ -700,24 +706,33 @@
         <div class="bloque-reporte" id="reporte-${index}" style="${(p.estadoMovil === 'FALLIDO' || p.estadoMovil === 'NO LLEVADO') ? 'display:block;' : 'display:none;'}">
           <span class="badge-estado" style="background:${colorBadge}">${p.estadoMovil}</span>
           <div>
-            <input type="text" id="input-nota-${index}" value="${p.notasMovil || ''}" placeholder="Motivo obligatorio...">
+            <input type="text" id="input-nota-${index}" value="${p.notasMovil || ''}" placeholder="Motivo obligatorio..." ${yaEnviado ? 'disabled' : ''}>
             
             ${esFallido ? `
-              <div class="caja-evidencia-foto">
-                <span style="font-size: 12px; font-weight: bold; color: #dc3545; display: block;">📷 Foto de Evidencia (Obligatorio):</span>
-                <div class="botones-foto-grid">
-                  <label for="input-camara-${index}" class="btn-foto-opcion btn-tomar-camara">
-                    📷 Tomar Foto
-                  </label>
-                  <label for="input-galeria-${index}" class="btn-foto-opcion btn-subir-galeria">
-                    🖼️ Galería
-                  </label>
-                </div>
-                <input type="file" id="input-camara-${index}" accept="image/*" capture="environment" onchange="seleccionarEvidenciaFoto(${index}, this)" style="display:none;">
-                <input type="file" id="input-galeria-${index}" accept="image/*" onchange="seleccionarEvidenciaFoto(${index}, this)" style="display:none;">
+              <div class="caja-evidencia-foto" ${yaEnviado ? 'style="opacity: 0.7; background: #f8fafc; border-color: #28a745;"' : ''}>
+                <span style="font-size: 12px; font-weight: bold; color: ${yaEnviado ? '#28a745' : '#dc3545'}; display: block;">
+                  ${yaEnviado ? '✅ Evidencia Fotográfica Enviada:' : '📷 Foto de Evidencia (Obligatorio):'}
+                </span>
+                ${!yaEnviado ? `
+                  <div class="botones-foto-grid">
+                    <label for="input-camara-${index}" class="btn-foto-opcion btn-tomar-camara">
+                      📷 Tomar Foto
+                    </label>
+                    <label for="input-galeria-${index}" class="btn-foto-opcion btn-subir-galeria">
+                      🖼️ Galería
+                    </label>
+                  </div>
+                  <input type="file" id="input-camara-${index}" accept="image/*" capture="environment" onchange="seleccionarEvidenciaFoto(${index}, this)" style="display:none;">
+                  <input type="file" id="input-galeria-${index}" accept="image/*" onchange="seleccionarEvidenciaFoto(${index}, this)" style="display:none;">
+                ` : ''}
                 <img id="preview-foto-${index}" src="" style="display:none; width: 100%; max-height: 160px; object-fit: cover; border-radius: 6px; margin-top: 8px; border: 1px solid #cbd5e1;">
               </div>
-              <button class="btn-principal" style="padding:10px; font-size:14px; margin-top:5px; background:#dc3545;" onclick="guardarFallidoConFoto(${index})">💾 Guardar Fallido y Enviar WhatsApp</button>
+              <button type="button" id="btn-guardar-fallido-${index}" class="btn-principal" 
+                style="padding:10px; font-size:14px; margin-top:5px; background:${yaEnviado ? '#28a745' : '#dc3545'}; ${yaEnviado ? 'opacity: 0.85; cursor: not-allowed;' : ''}" 
+                ${yaEnviado ? 'disabled' : ''} 
+                onclick="guardarFallidoConFoto(${index})">
+                ${yaEnviado ? '✅ Fallido Enviado' : '💾 Guardar Fallido y Enviar WhatsApp'}
+              </button>
             ` : `
               <button class="btn-principal" style="padding:8px; font-size:14px; margin-top:5px; background:#001c5b;" onclick="guardarNota(${index})">💾 Guardar Novedad</button>
             `}
@@ -785,6 +800,8 @@
 
   async function guardarFallidoConFoto(index) {
     const p = misPaquetes[index];
+    if (p.enviadoServidor) return;
+
     const notaInput = document.getElementById('input-nota-' + index);
     const nota = notaInput ? notaInput.value.trim() : '';
 
@@ -797,6 +814,15 @@
     if (!archivoFoto) {
       alert("⚠️ Debes tomar una foto o elegir una de la galería como evidencia.");
       return;
+    }
+
+    // Bloqueo inmediato posterior al clic
+    const btnGuardar = document.getElementById('btn-guardar-fallido-' + index);
+    if (btnGuardar) {
+      btnGuardar.disabled = true;
+      btnGuardar.innerText = "⏳ Enviando...";
+      btnGuardar.style.backgroundColor = "#6c757d";
+      btnGuardar.style.cursor = "not-allowed";
     }
 
     const mensajero = document.getElementById("mensajero").value;
@@ -824,17 +850,30 @@
       if (res && res.exito) {
         p.estadoMovil = "FALLIDO";
         p.notasMovil = nota;
+        p.enviadoServidor = true;
         delete archivosFotoSeleccionados[index];
         guardarPaquetesLocalmente();
         dibujarTarjetas();
         mostrarNotificacionError("✅ " + (res.mensaje || "Fallido guardado y enviado por WhatsApp"), true);
       } else {
         alert("❌ Error: " + (res && res.mensaje ? res.mensaje : "No se pudo guardar el fallido."));
+        if (btnGuardar) {
+          btnGuardar.disabled = false;
+          btnGuardar.innerText = "💾 Guardar Fallido y Enviar WhatsApp";
+          btnGuardar.style.backgroundColor = "#dc3545";
+          btnGuardar.style.cursor = "pointer";
+        }
       }
     } catch (err) {
       document.getElementById("loader").style.display = "none";
       document.getElementById("loader").innerText = "⏳ Validando credenciales y cargando ruta...";
       alert("❌ Error al procesar la imagen: " + err.message);
+      if (btnGuardar) {
+        btnGuardar.disabled = false;
+        btnGuardar.innerText = "💾 Guardar Fallido y Enviar WhatsApp";
+        btnGuardar.style.backgroundColor = "#dc3545";
+        btnGuardar.style.cursor = "pointer";
+      }
     }
   }
   
@@ -842,6 +881,7 @@
     if (misPaquetes[index].estadoMovil === nuevoEstado) {
       misPaquetes[index].estadoMovil = 'PENDIENTE';
       misPaquetes[index].notasMovil = '';
+      misPaquetes[index].enviadoServidor = false;
       misPaquetes[index].pagoMensajeroIndividual = obtenerTarifaPorEstado(misPaquetes[index], 'PENDIENTE');
       delete archivosFotoSeleccionados[index];
       
@@ -853,6 +893,7 @@
     }
 
     misPaquetes[index].estadoMovil = nuevoEstado;
+    misPaquetes[index].enviadoServidor = false;
     misPaquetes[index].pagoMensajeroIndividual = obtenerTarifaPorEstado(misPaquetes[index], nuevoEstado);
     
     if (nuevoEstado === 'ENTREGADO') {
