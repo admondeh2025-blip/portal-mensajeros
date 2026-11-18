@@ -218,7 +218,7 @@
   const URL_API = "https://script.google.com/macros/s/AKfycbxLpxLA-GmCJW9gJWnC0kwy_4ufU9QqvwCauVwdrHF6_u5Bc_UZ_-wtvCyIHtfajQWM/exec";
 
   let misPaquetes = [];
-  let archivosFotoSeleccionados = {}; // Almacena temporalmente la imagen elegida por cámara o galería por índice
+  let archivosFotoSeleccionados = {}; 
   let tarifasMunicipios = {};
   let tarifasBodegas = {};
   let tiendasBodegaSet = new Set();
@@ -410,7 +410,7 @@
       if (!yaExiste) listaUnicaServidor.push(ps);
     });
 
-    // Ordenamos respetando estrictamente el valor de la Columna Y (ordenColumnaY o orden) devuelto por el servidor
+    // Orden inicial estricto de columna Y
     listaUnicaServidor.sort((a, b) => {
       let ordenA = (a.ordenColumnaY !== undefined && a.ordenColumnaY !== "") ? Number(a.ordenColumnaY) : 999999;
       let ordenB = (b.ordenColumnaY !== undefined && b.ordenColumnaY !== "") ? Number(b.ordenColumnaY) : 999999;
@@ -422,6 +422,7 @@
         let locales = JSON.parse(paquetesGuardadosLocales);
         let listaOrdenada = [];
 
+        // Respetamos estrictamente la posición guardada localmente por el mensajero
         locales.forEach(loc => {
           let consecLoc = String(loc.consecutivo || "").trim().toUpperCase();
           let matchServ = listaUnicaServidor.find(serv => String(serv.consecutivo || "").trim().toUpperCase() === consecLoc);
@@ -431,7 +432,7 @@
               listaOrdenada.push({
                 ...matchServ,
                 estadoMovil: loc.estadoMovil || matchServ.estadoMovil,
-                notasMovil: loc.notasMovil || matchServ.notasMovil,
+                notasMovil: loc.notasMovil !== undefined ? loc.notasMovil : matchServ.notasMovil,
                 enviadoServidor: loc.enviadoServidor !== undefined ? loc.enviadoServidor : matchServ.enviadoServidor,
                 pagoMensajeroIndividual: obtenerTarifaPorEstado(matchServ, loc.estadoMovil || matchServ.estadoMovil)
               });
@@ -439,6 +440,7 @@
           }
         });
 
+        // Agregamos los nuevos que no estaban en local
         listaUnicaServidor.forEach(serv => {
           let consecServ = String(serv.consecutivo || "").trim().toUpperCase();
           let yaEsta = listaOrdenada.some(item => String(item.consecutivo || "").trim().toUpperCase() === consecServ);
@@ -508,7 +510,11 @@
           ultimaLecturaTime = ahora;
           ultimoCodigoLeido = decodedText;
 
-          if (navigator.vibrate) navigator.vibrate(100);
+          // 📳 VIBRACIÓN FORZADA (Incondicional al dispositivo)
+          if (navigator.vibrate) {
+            try { navigator.vibrate([120, 50, 120]); } catch(e) {}
+          }
+
           procesarConsecutivoEscaneado(decodedText).finally(() => {
             setTimeout(() => { procesandoEscaneo = false; }, 1500);
           });
@@ -558,6 +564,12 @@
     const texto = input.value.trim();
     if (!texto) return;
     input.value = "";
+    
+    // 📳 Vibración manual también
+    if (navigator.vibrate) {
+      try { navigator.vibrate([120, 50, 120]); } catch(e) {}
+    }
+
     procesarConsecutivoEscaneado(texto);
   }
 
@@ -614,7 +626,6 @@
     misPaquetes[index] = misPaquetes[nuevoIndex];
     misPaquetes[nuevoIndex] = temp;
 
-    // Reordenamos también referencia de fotos si las había sin guardar
     let tempFoto = archivosFotoSeleccionados[index];
     archivosFotoSeleccionados[index] = archivosFotoSeleccionados[nuevoIndex];
     archivosFotoSeleccionados[nuevoIndex] = tempFoto;
@@ -663,8 +674,8 @@
 
       let colorBadge = p.estadoMovil === 'FALLIDO' ? '#dc3545' : '#fd7e14';
       let esFallido = (p.estadoMovil === 'FALLIDO');
+      let esEntregado = (p.estadoMovil === 'ENTREGADO');
 
-      // Determinamos si el fallido ya fue enviado al servidor
       const yaEnviado = Boolean(p.enviadoServidor || (esFallido && String(p.notasMovil || '').trim() && !archivosFotoSeleccionados[index]));
 
       let claseOk = p.estadoMovil === 'ENTREGADO' ? 'btn-ok activo' : 'btn-ok';
@@ -703,10 +714,12 @@
           <button type="button" class="btn-accion ${claseFail}" onclick="cambiarEstado(${index}, 'FALLIDO')">❌ Fallido</button>
           <button type="button" class="btn-accion ${claseSkip}" onclick="cambiarEstado(${index}, 'NO LLEVADO')">🚫 No Llevado</button>
         </div>
-        <div class="bloque-reporte" id="reporte-${index}" style="${(p.estadoMovil === 'FALLIDO' || p.estadoMovil === 'NO LLEVADO') ? 'display:block;' : 'display:none;'}">
-          <span class="badge-estado" style="background:${colorBadge}">${p.estadoMovil}</span>
+
+        <div class="bloque-reporte" id="reporte-${index}" style="${(p.estadoMovil === 'FALLIDO' || p.estadoMovil === 'NO LLEVADO' || p.estadoMovil === 'ENTREGADO') ? 'display:block;' : 'display:none;'}">
+          ${esFallido || p.estadoMovil === 'NO_LLEVADO' ? `<span class="badge-estado" style="background:${colorBadge}">${p.estadoMovil}</span>` : ''}
           <div>
-            <input type="text" id="input-nota-${index}" value="${p.notasMovil || ''}" placeholder="Motivo obligatorio..." ${yaEnviado ? 'disabled' : ''}>
+            <!-- Campo de observaciones opcional para Entregados o obligatorio para Fallidos/No Llevados -->
+            <input type="text" id="input-nota-${index}" value="${p.notasMovil || ''}" placeholder="${esEntregado ? 'Observación opcional (ej: se deja en portería)...' : 'Motivo obligatorio...'}" ${yaEnviado ? 'disabled' : ''} oninput="actualizarNotaLocal(${index}, this.value)">
             
             ${esFallido ? `
               <div class="caja-evidencia-foto" ${yaEnviado ? 'style="opacity: 0.7; background: #f8fafc; border-color: #28a745;"' : ''}>
@@ -715,13 +728,10 @@
                 </span>
                 ${!yaEnviado ? `
                   <div class="botones-foto-grid">
-                    <label for="input-camara-${index}" class="btn-foto-opcion btn-tomar-camara">
-                      📷 Tomar Foto
-                    </label>
-                    <label for="input-galeria-${index}" class="btn-foto-opcion btn-subir-galeria">
-                      🖼️ Galería
-                    </label>
+                    <label for="input-camara-${index}" class="btn-foto-opcion btn-tomar-camara">📷 Tomar Foto</label>
+                    <label for="input-galeria-${index}" class="btn-foto-opcion btn-subir-galeria">🖼️ Galería</label>
                   </div>
+                  <!-- Se usa accept="image/*" optimizado para evitar cierre de app en Android -->
                   <input type="file" id="input-camara-${index}" accept="image/*" capture="environment" onchange="seleccionarEvidenciaFoto(${index}, this)" style="display:none;">
                   <input type="file" id="input-galeria-${index}" accept="image/*" onchange="seleccionarEvidenciaFoto(${index}, this)" style="display:none;">
                 ` : ''}
@@ -733,9 +743,11 @@
                 onclick="guardarFallidoConFoto(${index})">
                 ${yaEnviado ? '✅ Fallido Enviado' : '💾 Guardar Fallido y Enviar WhatsApp'}
               </button>
+            ` : (esEntregado ? `
+              <button class="btn-principal" style="padding:8px; font-size:14px; margin-top:5px; background:#28a745;" onclick="guardarNota(${index})">💾 Guardar Observación</button>
             ` : `
               <button class="btn-principal" style="padding:8px; font-size:14px; margin-top:5px; background:#001c5b;" onclick="guardarNota(${index})">💾 Guardar Novedad</button>
-            `}
+            `)}
           </div>
         </div>
       `;
@@ -749,6 +761,11 @@
     document.getElementById("txtRecaudoTotal").innerText = formatCOP(recaudoTotal);
     document.getElementById("txtPagoTotalMensajero").innerText = formatCOP(pagoTotalMensajero);
     calcularArqueoFinal();
+  }
+
+  function actualizarNotaLocal(index, valor) {
+    misPaquetes[index].notasMovil = valor;
+    guardarPaquetesLocalmente();
   }
 
   function seleccionarEvidenciaFoto(index, inputElement) {
@@ -816,7 +833,6 @@
       return;
     }
 
-    // Bloqueo inmediato posterior al clic
     const btnGuardar = document.getElementById('btn-guardar-fallido-' + index);
     if (btnGuardar) {
       btnGuardar.disabled = true;
@@ -897,8 +913,7 @@
     misPaquetes[index].pagoMensajeroIndividual = obtenerTarifaPorEstado(misPaquetes[index], nuevoEstado);
     
     if (nuevoEstado === 'ENTREGADO') {
-      misPaquetes[index].notasMovil = '';
-      delete archivosFotoSeleccionados[index];
+      // Mantenemos la tarjeta abierta para poder escribir observaciones opcionales si lo desean
       guardarPaquetesLocalmente();
       sincronizarConServidor(index);
       dibujarTarjetas();
@@ -928,7 +943,7 @@
     guardarPaquetesLocalmente();
     sincronizarConServidor(index);
     dibujarTarjetas();
-    mostrarNotificacionError("💾 Novedad guardada con éxito", true);
+    mostrarNotificacionError("💾 Observación / Novedad guardada con éxito", true);
   }
 
   function sincronizarConServidor(index) {
