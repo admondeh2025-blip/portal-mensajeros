@@ -592,17 +592,10 @@
     if (!codigoLargo) return;
 
     let consecutivoCandidato = normalizarConsecutivo(codigoLargo);
-    let telefonoCandidato = extraerTelefonoPosible(codigoLargo);
 
-    let yaExisteEnArray = misPaquetes.some(p => {
-      let cExistente = normalizarConsecutivo(p.consecutivo);
-      let tExistente = extraerTelefonoPosible(p.telefono || p.TEL || p.TELEFONO || p.celular || p.CELULAR || p.tel || "");
-      return (consecutivoCandidato && cExistente === consecutivoCandidato) ||
-             (telefonoCandidato && tExistente && tExistente === telefonoCandidato);
-    });
-
+    let yaExisteEnArray = misPaquetes.some(p => normalizarConsecutivo(p.consecutivo) === consecutivoCandidato);
     if (yaExisteEnArray) {
-      mostrarNotificacionError("⚠️ Paquete " + (consecutivoCandidato || codigoLargo) + " ya se encuentra en tu ruta.");
+      mostrarNotificacionError("⚠️ Paquete " + consecutivoCandidato + " ya se encuentra en tu ruta.");
       return;
     }
 
@@ -611,23 +604,10 @@
 
     let res = await llamarAPI({
       accion: "buscarYAsignarPaquete",
-      codigoLargo: codigoLargo,
-      consecutivo: consecutivoCandidato || codigoLargo,
-      telefono: telefonoCandidato,
+      consecutivo: codigoLargo,
       mensajero: mensajero,
       numeroRuta: numeroRuta
     });
-
-    if ((!res || !res.exito || !res.registro) && telefonoCandidato) {
-      res = await llamarAPI({
-        accion: "cruzarPorTelefonoYAsignar",
-        codigoLargo: codigoLargo,
-        telefono: telefonoCandidato,
-        consecutivo: consecutivoCandidato,
-        mensajero: mensajero,
-        numeroRuta: numeroRuta
-      });
-    }
 
     if (!res || !res.exito || !res.registro) {
       mostrarNotificacionError("❌ " + ((res && res.mensaje) || "Paquete no encontrado"));
@@ -636,6 +616,7 @@
 
     let reg = res.registro;
     let consecFinal = normalizarConsecutivo(reg.consecutivo || consecutivoCandidato || codigoLargo);
+
     let yaExisteTrasConsulta = misPaquetes.some(p => normalizarConsecutivo(p.consecutivo) === consecFinal);
     if (yaExisteTrasConsulta) {
       mostrarNotificacionError("⚠️ Paquete " + consecFinal + " ya se encuentra en tu ruta.");
@@ -649,7 +630,6 @@
     let nuevoPaquete = {
       ...reg,
       consecutivo: consecFinal,
-      codigoEscaneado: codigoLargo,
       estadoMovil: 'PENDIENTE',
       notasMovil: '',
       enviadoServidor: false,
