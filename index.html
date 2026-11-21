@@ -106,8 +106,7 @@
 <body>
 
   <div class="header-container">
-    <!-- Reemplaza el src por tu URL estable de Drive o imagen propia si PostImg falla -->
-    <img id="logoEmpresa" src="https://i.postimg.cc/Y05PNScY/descarga.png" alt="Logo Empresa" class="logo-ajustado">
+    <img id="logoEmpresa" src="https://i.postimg.co/Y05PNScY/descarga.png" alt="Logo Empresa" class="logo-ajustado">
   </div>
 
   <div class="header">
@@ -146,7 +145,7 @@
         <div id="reader" style="width: 100%; max-width: 400px; margin: 0 auto; display: none; border-radius: 8px; overflow: hidden;"></div>
         
         <div class="input-manual-group" style="margin-top: 10px;">
-          <input type="text" id="inputScanManual" placeholder="O escribe el código manual..." onkeydown="evaluarScanManual(event)">
+          <input type="text" id="inputScanManual" placeholder="O escribe el código / teléfono manual..." onkeydown="evaluarScanManual(event)">
           <button class="btn-principal" style="width: 80px; padding: 10px;" onclick="procesarCodigoManual()">OK</button>
         </div>
       </div>
@@ -249,6 +248,15 @@
                 raw.match(/CodInt[:\.]?\s*(\d+)/i) ||
                 raw.match(/(C-\d+|HS\d+|[A-Z]{3,4}\d+|\d+)/i);
     return (match ? (match[1] || match[0]) : raw).trim().toUpperCase();
+  }
+
+  function extraerTelefonoPosible(texto) {
+    let digits = String(texto || "").replace(/\D/g, "");
+    if (!digits) return "";
+    if (digits.length > 10 && digits.startsWith("57")) {
+      digits = digits.slice(2);
+    }
+    return digits.length >= 7 ? digits : "";
   }
 
   document.addEventListener("DOMContentLoaded", async function() {
@@ -580,12 +588,21 @@
   }
 
   async function procesarConsecutivoEscaneado(codigoRaw) {
-    let consecutivoLimpio = normalizarConsecutivo(codigoRaw);
-    if (!consecutivoLimpio) return;
+    let codigoLargo = String(codigoRaw || "").trim();
+    if (!codigoLargo) return;
 
-    let yaExisteEnArray = misPaquetes.some(p => normalizarConsecutivo(p.consecutivo) === consecutivoLimpio);
+    let consecutivoCandidato = normalizarConsecutivo(codigoLargo);
+    let telefonoCandidato = extraerTelefonoPosible(codigoLargo);
+
+    let yaExisteEnArray = misPaquetes.some(p => {
+      let cExistente = normalizarConsecutivo(p.consecutivo);
+      let tExistente = extraerTelefonoPosible(p.telefono || p.TEL || p.TELEFONO || p.celular || p.CELULAR || p.tel || "");
+      return (consecutivoCandidato && cExistente === consecutivoCandidato) ||
+             (telefonoCandidato && tExistente && tExistente === telefonoCandidato);
+    });
+
     if (yaExisteEnArray) {
-      mostrarNotificacionError("⚠️ Paquete " + consecutivoLimpio + " ya se encuentra en tu ruta.");
+      mostrarNotificacionError("⚠️ Paquete " + (consecutivoCandidato || codigoLargo) + " ya se encuentra en tu ruta.");
       return;
     }
 
@@ -594,18 +611,37 @@
 
     let res = await llamarAPI({
       accion: "buscarYAsignarPaquete",
-      consecutivo: consecutivoLimpio,
+      codigoLargo: codigoLargo,
+      consecutivo: consecutivoCandidato || codigoLargo,
+      telefono: telefonoCandidato,
       mensajero: mensajero,
       numeroRuta: numeroRuta
     });
 
-    if (!res.exito || !res.registro) {
-      mostrarNotificacionError("❌ " + (res.mensaje || "Paquete no encontrado"));
+    if ((!res || !res.exito || !res.registro) && telefonoCandidato) {
+      res = await llamarAPI({
+        accion: "cruzarPorTelefonoYAsignar",
+        codigoLargo: codigoLargo,
+        telefono: telefonoCandidato,
+        consecutivo: consecutivoCandidato,
+        mensajero: mensajero,
+        numeroRuta: numeroRuta
+      });
+    }
+
+    if (!res || !res.exito || !res.registro) {
+      mostrarNotificacionError("❌ " + ((res && res.mensaje) || "Paquete no encontrado"));
       return;
     }
 
     let reg = res.registro;
-    let consecFinal = normalizarConsecutivo(reg.consecutivo || consecutivoLimpio);
+    let consecFinal = normalizarConsecutivo(reg.consecutivo || consecutivoCandidato || codigoLargo);
+    let yaExisteTrasConsulta = misPaquetes.some(p => normalizarConsecutivo(p.consecutivo) === consecFinal);
+    if (yaExisteTrasConsulta) {
+      mostrarNotificacionError("⚠️ Paquete " + consecFinal + " ya se encuentra en tu ruta.");
+      return;
+    }
+
     let numeroEscaneo = (reg.ordenColumnaY && !isNaN(Number(reg.ordenColumnaY)))
       ? Number(reg.ordenColumnaY)
       : (misPaquetes.length + 1);
@@ -613,6 +649,7 @@
     let nuevoPaquete = {
       ...reg,
       consecutivo: consecFinal,
+      codigoEscaneado: codigoLargo,
       estadoMovil: 'PENDIENTE',
       notasMovil: '',
       enviadoServidor: false,
