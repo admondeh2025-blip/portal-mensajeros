@@ -106,7 +106,8 @@
 <body>
 
   <div class="header-container">
-    <img src="https://i.postimg.co/Y05PNScY/descarga.png" alt="Domicilios El Hueco" class="logo-ajustado">
+    <!-- Reemplaza el src por tu URL estable de Drive o imagen propia si PostImg falla -->
+    <img id="logoEmpresa" src="https://i.postimg.co/Y05PNScY/descarga.png" alt="Logo Empresa" class="logo-ajustado" onerror="this.style.display='none';">
   </div>
 
   <div class="header">
@@ -429,7 +430,6 @@
       let notasFinal = ps.observacion !== undefined ? ps.observacion : (ps.notasMovil || '');
       let enviadoFinal = (String(estadoFinal).toUpperCase() === 'FALLIDO' && Boolean(String(notasFinal || '').trim()));
 
-      // Conservamos notas/estado no enviados del servidor si coincidían localmente
       if (locMatch && String(estadoFinal).toUpperCase() === 'PENDIENTE' && locMatch.estadoMovil && locMatch.estadoMovil !== 'PENDIENTE') {
         estadoFinal = locMatch.estadoMovil;
         notasFinal = locMatch.notasMovil !== undefined ? locMatch.notasMovil : notasFinal;
@@ -451,7 +451,6 @@
       });
     });
 
-    // Orden persistente estricto según la Columna Y del servidor (orden de escaneo o reordenamiento guardado)
     listaUnicaServidor.sort((a, b) => {
       if (a.ordenColumnaY !== b.ordenColumnaY) {
         return a.ordenColumnaY - b.ordenColumnaY;
@@ -622,13 +621,13 @@
     };
 
     misPaquetes.push(nuevoPaquete);
-    await sincronizarOrdenCompletoServidor();
-
+    guardarPaquetesLocalmente();
     dibujarTarjetas();
     mostrarNotificacionError("✅ Paquete #" + numeroEscaneo + " (" + consecFinal + ") agregado.", true);
+    sincronizarOrdenCompletoServidor();
   }
 
-  async function moverPosicion(index, direccion) {
+  function moverPosicion(index, direccion) {
     let nuevoIndex = index + direccion;
     if (nuevoIndex < 0 || nuevoIndex >= misPaquetes.length) return;
 
@@ -648,8 +647,9 @@
       delete archivosFotoSeleccionados[nuevoIndex];
     }
 
+    guardarPaquetesLocalmente();
     dibujarTarjetas();
-    await sincronizarOrdenCompletoServidor();
+    sincronizarOrdenCompletoServidor();
   }
 
   function dibujarTarjetas() {
@@ -759,9 +759,9 @@
                 ${yaEnviado ? '✅ Fallido Enviado' : '💾 Guardar Fallido y Enviar WhatsApp'}
               </button>
             ` : (esEntregado ? `
-              <button class="btn-principal" style="padding:8px; font-size:14px; margin-top:5px; background:#28a745;" onclick="guardarNota(${index})">💾 Guardar Observación</button>
+              <button type="button" class="btn-principal" style="padding:8px; font-size:14px; margin-top:5px; background:#28a745;" onclick="guardarNota(${index})">💾 Guardar Observación</button>
             ` : `
-              <button class="btn-principal" style="padding:8px; font-size:14px; margin-top:5px; background:#001c5b;" onclick="guardarNota(${index})">💾 Guardar Novedad</button>
+              <button type="button" class="btn-principal" style="padding:8px; font-size:14px; margin-top:5px; background:#001c5b;" onclick="guardarNota(${index})">💾 Guardar Novedad</button>
             `)}
           </div>
         </div>
@@ -910,7 +910,7 @@
     }
   }
   
-  async function cambiarEstado(index, nuevoEstado) {
+  function cambiarEstado(index, nuevoEstado) {
     if (misPaquetes[index].estadoMovil === nuevoEstado) {
       misPaquetes[index].estadoMovil = 'PENDIENTE';
       misPaquetes[index].notasMovil = '';
@@ -919,9 +919,9 @@
       delete archivosFotoSeleccionados[index];
       
       guardarPaquetesLocalmente();
-      await sincronizarConServidor(index);
       dibujarTarjetas();
       mostrarNotificacionError("🔄 Estado revertido a Pendiente", true);
+      sincronizarConServidor(index);
       return;
     }
 
@@ -929,23 +929,22 @@
     misPaquetes[index].enviadoServidor = false;
     misPaquetes[index].pagoMensajeroIndividual = obtenerTarifaPorEstado(misPaquetes[index], nuevoEstado);
     
+    guardarPaquetesLocalmente();
+    dibujarTarjetas();
+
     if (nuevoEstado === 'ENTREGADO') {
-      guardarPaquetesLocalmente();
-      await sincronizarConServidor(index);
-      dibujarTarjetas();
       mostrarNotificacionError("✔️ Paquete marcado como Entregado", true);
     } else {
-      guardarPaquetesLocalmente();
-      await sincronizarConServidor(index);
-      dibujarTarjetas();
       setTimeout(() => {
         const input = document.getElementById('input-nota-' + index);
         if (input) input.focus();
       }, 100);
     }
+
+    sincronizarConServidor(index);
   }
 
-  async function guardarNota(index) {
+  function guardarNota(index) {
     const notaInput = document.getElementById('input-nota-' + index);
     const nota = notaInput ? notaInput.value.trim() : '';
     const estadoActual = misPaquetes[index].estadoMovil;
@@ -957,9 +956,9 @@
 
     misPaquetes[index].notasMovil = nota;
     guardarPaquetesLocalmente();
-    await sincronizarConServidor(index);
     dibujarTarjetas();
     mostrarNotificacionError("💾 Observación / Novedad guardada con éxito", true);
+    sincronizarConServidor(index);
   }
 
   function sincronizarConServidor(index) {
@@ -974,6 +973,11 @@
       observacion: p.notasMovil || "",
       mensajero: mensajero,
       ruta: numeroRuta
+    }).then(res => {
+      if (res && res.exito === false) {
+        mostrarNotificacionError("⚠️ No se sincronizó " + normalizarConsecutivo(p.consecutivo) + ": " + (res.mensaje || "reintentar"));
+      }
+      return res;
     });
   }
 
