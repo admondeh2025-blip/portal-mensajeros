@@ -106,7 +106,7 @@
 <body>
 
   <div class="header-container">
-    <img src="https://i.postimg.cc/Y05PNScY/descarga.png" alt="Domicilios El Hueco" class="logo-ajustado">
+    <img src="https://i.postimg.co/Y05PNScY/descarga.png" alt="Domicilios El Hueco" class="logo-ajustado">
   </div>
 
   <div class="header">
@@ -239,6 +239,15 @@
       console.error("Error en API:", e);
       return { exito: false, mensaje: "Error de red con el servidor." };
     }
+  }
+
+  function normalizarConsecutivo(texto) {
+    let raw = String(texto || "").trim();
+    if (!raw) return "";
+    let match = raw.match(/IDINT\.?\s*(\d+)/i) ||
+                raw.match(/CodInt[:\.]?\s*(\d+)/i) ||
+                raw.match(/(C-\d+|HS\d+|[A-Z]{3,4}\d+|\d+)/i);
+    return (match ? (match[1] || match[0]) : raw).trim().toUpperCase();
   }
 
   document.addEventListener("DOMContentLoaded", async function() {
@@ -395,70 +404,65 @@
     const claveStorageRuta = `paquetes_ruta_${mensajero}_${ruta}`;
     const paquetesGuardadosLocales = localStorage.getItem(claveStorageRuta);
 
-    let paquetesServidor = (res.paquetes || []).map(p => ({
-      ...p,
-      estadoMovil: p.estado || p.estadoMovil || 'PENDIENTE',
-      notasMovil: p.observacion || p.notasMovil || '',
-      enviadoServidor: (String(p.estado || p.estadoMovil || '').toUpperCase() === 'FALLIDO' && Boolean(String(p.observacion || p.notasMovil || '').trim())),
-      pagoMensajeroIndividual: obtenerTarifaPorEstado(p, p.estado || p.estadoMovil || 'PENDIENTE')
-    }));
-
-    let listaUnicaServidor = [];
-    paquetesServidor.forEach(ps => {
-      let consecutivoLimpio = String(ps.consecutivo || "").trim().toUpperCase();
-      let yaExiste = listaUnicaServidor.some(item => String(item.consecutivo || "").trim().toUpperCase() === consecutivoLimpio);
-      if (!yaExiste) listaUnicaServidor.push(ps);
-    });
-
-    // Orden inicial estricto de columna Y
-    listaUnicaServidor.sort((a, b) => {
-      let ordenA = (a.ordenColumnaY !== undefined && a.ordenColumnaY !== "") ? Number(a.ordenColumnaY) : 999999;
-      let ordenB = (b.ordenColumnaY !== undefined && b.ordenColumnaY !== "") ? Number(b.ordenColumnaY) : 999999;
-      return ordenA - ordenB;
-    });
-
+    let mapaLocales = {};
     if (paquetesGuardadosLocales) {
       try {
         let locales = JSON.parse(paquetesGuardadosLocales);
-        let listaOrdenada = [];
-
-        // Respetamos estrictamente la posición guardada localmente por el mensajero
-        locales.forEach(loc => {
-          let consecLoc = String(loc.consecutivo || "").trim().toUpperCase();
-          let matchServ = listaUnicaServidor.find(serv => String(serv.consecutivo || "").trim().toUpperCase() === consecLoc);
-          if (matchServ) {
-            let yaEstaEnOrden = listaOrdenada.some(item => String(item.consecutivo || "").trim().toUpperCase() === consecLoc);
-            if (!yaEstaEnOrden) {
-              listaOrdenada.push({
-                ...matchServ,
-                estadoMovil: loc.estadoMovil || matchServ.estadoMovil,
-                notasMovil: loc.notasMovil !== undefined ? loc.notasMovil : matchServ.notasMovil,
-                enviadoServidor: loc.enviadoServidor !== undefined ? loc.enviadoServidor : matchServ.enviadoServidor,
-                pagoMensajeroIndividual: obtenerTarifaPorEstado(matchServ, loc.estadoMovil || matchServ.estadoMovil)
-              });
-            }
-          }
-        });
-
-        // Agregamos los nuevos que no estaban en local
-        listaUnicaServidor.forEach(serv => {
-          let consecServ = String(serv.consecutivo || "").trim().toUpperCase();
-          let yaEsta = listaOrdenada.some(item => String(item.consecutivo || "").trim().toUpperCase() === consecServ);
-          if (!yaEsta) {
-            listaOrdenada.push(serv);
-          }
-        });
-
-        misPaquetes = listaOrdenada;
-      } catch (e) {
-        misPaquetes = listaUnicaServidor;
-      }
-    } else {
-      misPaquetes = listaUnicaServidor;
+        if (Array.isArray(locales)) {
+          locales.forEach(loc => {
+            let cKey = normalizarConsecutivo(loc.consecutivo);
+            if (cKey) mapaLocales[cKey] = loc;
+          });
+        }
+      } catch (e) {}
     }
 
+    let listaUnicaServidor = [];
+    (res.paquetes || []).forEach(ps => {
+      let consecLimpio = normalizarConsecutivo(ps.consecutivo);
+      if (!consecLimpio) return;
+      let yaExiste = listaUnicaServidor.some(item => normalizarConsecutivo(item.consecutivo) === consecLimpio);
+      if (yaExiste) return;
+
+      let locMatch = mapaLocales[consecLimpio];
+      let estadoFinal = ps.estado || ps.estadoMovil || 'PENDIENTE';
+      let notasFinal = ps.observacion !== undefined ? ps.observacion : (ps.notasMovil || '');
+      let enviadoFinal = (String(estadoFinal).toUpperCase() === 'FALLIDO' && Boolean(String(notasFinal || '').trim()));
+
+      // Conservamos notas/estado no enviados del servidor si coincidían localmente
+      if (locMatch && String(estadoFinal).toUpperCase() === 'PENDIENTE' && locMatch.estadoMovil && locMatch.estadoMovil !== 'PENDIENTE') {
+        estadoFinal = locMatch.estadoMovil;
+        notasFinal = locMatch.notasMovil !== undefined ? locMatch.notasMovil : notasFinal;
+        enviadoFinal = Boolean(locMatch.enviadoServidor);
+      }
+
+      let ordServidor = (ps.ordenColumnaY !== undefined && ps.ordenColumnaY !== "" && !isNaN(Number(ps.ordenColumnaY)))
+        ? Number(ps.ordenColumnaY)
+        : 999999;
+
+      listaUnicaServidor.push({
+        ...ps,
+        consecutivo: consecLimpio,
+        estadoMovil: String(estadoFinal).toUpperCase(),
+        notasMovil: notasFinal,
+        enviadoServidor: enviadoFinal,
+        ordenColumnaY: ordServidor,
+        pagoMensajeroIndividual: obtenerTarifaPorEstado(ps, estadoFinal)
+      });
+    });
+
+    // Orden persistente estricto según la Columna Y del servidor (orden de escaneo o reordenamiento guardado)
+    listaUnicaServidor.sort((a, b) => {
+      if (a.ordenColumnaY !== b.ordenColumnaY) {
+        return a.ordenColumnaY - b.ordenColumnaY;
+      }
+      return 0;
+    });
+
+    misPaquetes = listaUnicaServidor;
+    archivosFotoSeleccionados = {};
+
     guardarPaquetesLocalmente();
-    sincronizarOrdenCompletoServidor();
     document.getElementById("bloqueRuta").style.display = "block";
     dibujarTarjetas();
   }
@@ -473,12 +477,17 @@
   }
 
   function sincronizarOrdenCompletoServidor() {
-    let arrayOrdenado = misPaquetes.map((p, idx) => ({
-      consecutivo: p.consecutivo,
-      orden: idx + 1
-    }));
+    let arrayOrdenado = misPaquetes.map((p, idx) => {
+      p.ordenColumnaY = idx + 1;
+      return {
+        consecutivo: normalizarConsecutivo(p.consecutivo),
+        orden: idx + 1
+      };
+    });
 
-    llamarAPI({
+    guardarPaquetesLocalmente();
+
+    return llamarAPI({
       accion: "actualizarOrdenRuta",
       mensajero: document.getElementById("mensajero").value,
       numeroRuta: document.getElementById("ruta").value,
@@ -510,7 +519,6 @@
           ultimaLecturaTime = ahora;
           ultimoCodigoLeido = decodedText;
 
-          // 📳 VIBRACIÓN FORZADA (Incondicional al dispositivo)
           if (navigator.vibrate) {
             try { navigator.vibrate([120, 50, 120]); } catch(e) {}
           }
@@ -565,7 +573,6 @@
     if (!texto) return;
     input.value = "";
     
-    // 📳 Vibración manual también
     if (navigator.vibrate) {
       try { navigator.vibrate([120, 50, 120]); } catch(e) {}
     }
@@ -574,51 +581,54 @@
   }
 
   async function procesarConsecutivoEscaneado(codigoRaw) {
-    let consecutivo = codigoRaw.trim();
+    let consecutivoLimpio = normalizarConsecutivo(codigoRaw);
+    if (!consecutivoLimpio) return;
 
-    let matchCheck = consecutivo.match(/IDINT\.?\s*(\d+)/i) || consecutivo.match(/CodInt[:\.]?\s*(\d+)/i) || consecutivo.match(/(C-\d+|HS\d+|[A-Z]{3,4}\d+|\d+)/i);
-    let idVisualChequeo = matchCheck ? (matchCheck[1] || matchCheck[0]) : consecutivo;
-
-    let yaExisteEnArray = misPaquetes.some(p => {
-      let rawP = String(p.consecutivo || "").trim();
-      let mP = rawP.match(/IDINT\.?\s*(\d+)/i) || rawP.match(/CodInt[:\.]?\s*(\d+)/i) || rawP.match(/(C-\d+|HS\d+|[A-Z]{3,4}\d+|\d+)/i);
-      let idVisualP = mP ? (mP[1] || mP[0]) : rawP;
-      return idVisualP.toUpperCase() === idVisualChequeo.toUpperCase();
-    });
-
+    let yaExisteEnArray = misPaquetes.some(p => normalizarConsecutivo(p.consecutivo) === consecutivoLimpio);
     if (yaExisteEnArray) {
-      mostrarNotificacionError("⚠️ Paquete " + idVisualChequeo + " ya se encuentra en tu ruta.");
+      mostrarNotificacionError("⚠️ Paquete " + consecutivoLimpio + " ya se encuentra en tu ruta.");
       return;
     }
 
     let mensajero = document.getElementById("mensajero").value;
     let numeroRuta = document.getElementById("ruta").value;
 
-    let res = await llamarAPI({ accion: "buscarYAsignarPaquete", consecutivo, mensajero, numeroRuta });
+    let res = await llamarAPI({
+      accion: "buscarYAsignarPaquete",
+      consecutivo: consecutivoLimpio,
+      mensajero: mensajero,
+      numeroRuta: numeroRuta
+    });
+
     if (!res.exito || !res.registro) {
       mostrarNotificacionError("❌ " + (res.mensaje || "Paquete no encontrado"));
       return;
     }
 
     let reg = res.registro;
+    let consecFinal = normalizarConsecutivo(reg.consecutivo || consecutivoLimpio);
+    let numeroEscaneo = (reg.ordenColumnaY && !isNaN(Number(reg.ordenColumnaY)))
+      ? Number(reg.ordenColumnaY)
+      : (misPaquetes.length + 1);
+
     let nuevoPaquete = {
       ...reg,
-      consecutivo: consecutivo,
+      consecutivo: consecFinal,
       estadoMovil: 'PENDIENTE',
       notasMovil: '',
       enviadoServidor: false,
+      ordenColumnaY: numeroEscaneo,
       pagoMensajeroIndividual: obtenerTarifaPorEstado(reg, 'PENDIENTE')
     };
 
     misPaquetes.push(nuevoPaquete);
-    guardarPaquetesLocalmente();
-    sincronizarOrdenCompletoServidor();
+    await sincronizarOrdenCompletoServidor();
 
     dibujarTarjetas();
-    mostrarNotificacionError("✅ Paquete agregado exitosamente.", true);
+    mostrarNotificacionError("✅ Paquete #" + numeroEscaneo + " (" + consecFinal + ") agregado.", true);
   }
 
-  function moverPosicion(index, direccion) {
+  async function moverPosicion(index, direccion) {
     let nuevoIndex = index + direccion;
     if (nuevoIndex < 0 || nuevoIndex >= misPaquetes.length) return;
 
@@ -627,12 +637,19 @@
     misPaquetes[nuevoIndex] = temp;
 
     let tempFoto = archivosFotoSeleccionados[index];
-    archivosFotoSeleccionados[index] = archivosFotoSeleccionados[nuevoIndex];
-    archivosFotoSeleccionados[nuevoIndex] = tempFoto;
+    if (archivosFotoSeleccionados[nuevoIndex] !== undefined) {
+      archivosFotoSeleccionados[index] = archivosFotoSeleccionados[nuevoIndex];
+    } else {
+      delete archivosFotoSeleccionados[index];
+    }
+    if (tempFoto !== undefined) {
+      archivosFotoSeleccionados[nuevoIndex] = tempFoto;
+    } else {
+      delete archivosFotoSeleccionados[nuevoIndex];
+    }
 
-    guardarPaquetesLocalmente();
-    sincronizarOrdenCompletoServidor();
     dibujarTarjetas();
+    await sincronizarOrdenCompletoServidor();
   }
 
   function dibujarTarjetas() {
@@ -651,9 +668,8 @@
       } else if (p.estadoMovil === 'FALLIDO') { fallidos++; pagoTotalMensajero += Number(p.pagoMensajeroIndividual || 0); }
       else if (p.estadoMovil === 'NO LLEVADO') noLlevados++;
 
-      let rawConsecutivo = String(p.consecutivo || 'N/A');
-      let matchLimpio = rawConsecutivo.match(/IDINT\.?\s*(\d+)/i) || rawConsecutivo.match(/CodInt[:\.]?\s*(\d+)/i) || rawConsecutivo.match(/(C-\d+|HS\d+|[A-Z]{3,4}\d+|\d+)/i);
-      let consecutivoLimpio = matchLimpio ? (matchLimpio[1] || matchLimpio[0]) : rawConsecutivo;
+      let consecutivoLimpio = normalizarConsecutivo(p.consecutivo) || 'N/A';
+      let numeroTarjeta = index + 1;
 
       const card = document.createElement("div");
       let claseCard = 'card-paquete';
@@ -675,6 +691,7 @@
       let colorBadge = p.estadoMovil === 'FALLIDO' ? '#dc3545' : '#fd7e14';
       let esFallido = (p.estadoMovil === 'FALLIDO');
       let esEntregado = (p.estadoMovil === 'ENTREGADO');
+      let esNoLlevado = (p.estadoMovil === 'NO LLEVADO');
 
       const yaEnviado = Boolean(p.enviadoServidor || (esFallido && String(p.notasMovil || '').trim() && !archivosFotoSeleccionados[index]));
 
@@ -685,7 +702,7 @@
       card.innerHTML = `
         <div class="card-header">
           <span class="consecutivo">
-            <span style="background: #001c5b; color: white; padding: 2px 7px; border-radius: 4px; font-size: 12px; margin-right: 6px; font-weight: bold;">#${index + 1}</span>
+            <span style="background: #001c5b; color: white; padding: 2px 7px; border-radius: 4px; font-size: 12px; margin-right: 6px; font-weight: bold;">#${numeroTarjeta}</span>
             📦 Guía: ${consecutivoLimpio}
           </span>
           <div class="controles-orden">
@@ -715,10 +732,9 @@
           <button type="button" class="btn-accion ${claseSkip}" onclick="cambiarEstado(${index}, 'NO LLEVADO')">🚫 No Llevado</button>
         </div>
 
-        <div class="bloque-reporte" id="reporte-${index}" style="${(p.estadoMovil === 'FALLIDO' || p.estadoMovil === 'NO LLEVADO' || p.estadoMovil === 'ENTREGADO') ? 'display:block;' : 'display:none;'}">
-          ${esFallido || p.estadoMovil === 'NO_LLEVADO' ? `<span class="badge-estado" style="background:${colorBadge}">${p.estadoMovil}</span>` : ''}
+        <div class="bloque-reporte" id="reporte-${index}" style="${(esFallido || esNoLlevado || esEntregado) ? 'display:block;' : 'display:none;'}">
+          ${(esFallido || esNoLlevado) ? `<span class="badge-estado" style="background:${colorBadge}">${p.estadoMovil}</span>` : ''}
           <div>
-            <!-- Campo de observaciones opcional para Entregados o obligatorio para Fallidos/No Llevados -->
             <input type="text" id="input-nota-${index}" value="${p.notasMovil || ''}" placeholder="${esEntregado ? 'Observación opcional (ej: se deja en portería)...' : 'Motivo obligatorio...'}" ${yaEnviado ? 'disabled' : ''} oninput="actualizarNotaLocal(${index}, this.value)">
             
             ${esFallido ? `
@@ -731,7 +747,6 @@
                     <label for="input-camara-${index}" class="btn-foto-opcion btn-tomar-camara">📷 Tomar Foto</label>
                     <label for="input-galeria-${index}" class="btn-foto-opcion btn-subir-galeria">🖼️ Galería</label>
                   </div>
-                  <!-- Se usa accept="image/*" optimizado para evitar cierre de app en Android -->
                   <input type="file" id="input-camara-${index}" accept="image/*" capture="environment" onchange="seleccionarEvidenciaFoto(${index}, this)" style="display:none;">
                   <input type="file" id="input-galeria-${index}" accept="image/*" onchange="seleccionarEvidenciaFoto(${index}, this)" style="display:none;">
                 ` : ''}
@@ -843,6 +858,7 @@
 
     const mensajero = document.getElementById("mensajero").value;
     const numeroRuta = document.getElementById("ruta").value;
+    const consecutivoLimpio = normalizarConsecutivo(p.consecutivo);
 
     document.getElementById("loader").innerText = "⏳ Subiendo evidencia y notificando a la tienda...";
     document.getElementById("loader").style.display = "block";
@@ -852,7 +868,7 @@
 
       const res = await llamarAPI({
         accion: "registrarFallidoConEvidencia",
-        consecutivo: p.consecutivo,
+        consecutivo: consecutivoLimpio,
         estado: "FALLIDO",
         observacion: nota,
         fotoBase64: fotoBase64,
@@ -864,6 +880,7 @@
       document.getElementById("loader").innerText = "⏳ Validando credenciales y cargando ruta...";
 
       if (res && res.exito) {
+        p.consecutivo = consecutivoLimpio;
         p.estadoMovil = "FALLIDO";
         p.notasMovil = nota;
         p.enviadoServidor = true;
@@ -893,7 +910,7 @@
     }
   }
   
-  function cambiarEstado(index, nuevoEstado) {
+  async function cambiarEstado(index, nuevoEstado) {
     if (misPaquetes[index].estadoMovil === nuevoEstado) {
       misPaquetes[index].estadoMovil = 'PENDIENTE';
       misPaquetes[index].notasMovil = '';
@@ -902,7 +919,7 @@
       delete archivosFotoSeleccionados[index];
       
       guardarPaquetesLocalmente();
-      sincronizarConServidor(index);
+      await sincronizarConServidor(index);
       dibujarTarjetas();
       mostrarNotificacionError("🔄 Estado revertido a Pendiente", true);
       return;
@@ -913,14 +930,13 @@
     misPaquetes[index].pagoMensajeroIndividual = obtenerTarifaPorEstado(misPaquetes[index], nuevoEstado);
     
     if (nuevoEstado === 'ENTREGADO') {
-      // Mantenemos la tarjeta abierta para poder escribir observaciones opcionales si lo desean
       guardarPaquetesLocalmente();
-      sincronizarConServidor(index);
+      await sincronizarConServidor(index);
       dibujarTarjetas();
       mostrarNotificacionError("✔️ Paquete marcado como Entregado", true);
     } else {
       guardarPaquetesLocalmente();
-      sincronizarConServidor(index);
+      await sincronizarConServidor(index);
       dibujarTarjetas();
       setTimeout(() => {
         const input = document.getElementById('input-nota-' + index);
@@ -929,7 +945,7 @@
     }
   }
 
-  function guardarNota(index) {
+  async function guardarNota(index) {
     const notaInput = document.getElementById('input-nota-' + index);
     const nota = notaInput ? notaInput.value.trim() : '';
     const estadoActual = misPaquetes[index].estadoMovil;
@@ -941,18 +957,23 @@
 
     misPaquetes[index].notasMovil = nota;
     guardarPaquetesLocalmente();
-    sincronizarConServidor(index);
+    await sincronizarConServidor(index);
     dibujarTarjetas();
     mostrarNotificacionError("💾 Observación / Novedad guardada con éxito", true);
   }
 
   function sincronizarConServidor(index) {
     const p = misPaquetes[index];
-    llamarAPI({
+    const mensajero = document.getElementById("mensajero").value;
+    const numeroRuta = document.getElementById("ruta").value;
+
+    return llamarAPI({
       accion: "registrarNovedad",
-      consecutivo: p.consecutivo,
+      consecutivo: normalizarConsecutivo(p.consecutivo),
       estado: p.estadoMovil,
-      observacion: p.notasMovil || ""
+      observacion: p.notasMovil || "",
+      mensajero: mensajero,
+      ruta: numeroRuta
     });
   }
 
